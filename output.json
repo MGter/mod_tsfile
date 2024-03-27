@@ -1,0 +1,25 @@
+{
+    "task_array": [
+        {
+            "pattern": [
+                {
+                    "media": "all", 
+                    "end_sec": 90, 
+                    "start_sec": 30, 
+                    "func": "add", 
+                    "pts_base": 180000
+                }, 
+                {
+                    "media": "all", 
+                    "end_sec": 180, 
+                    "start_sec": -1, 
+                    "func": "cut", 
+                    "pts_base": 0
+                }
+            ], 
+            "output_file": "CBR_5M_H265_HEVC_MP3_HD_25f_420_all_media_from_sec_30_to_sec_90_add_2_sec_pts.ts", 
+            "id": 0, 
+            "input_file": "CBR_5M_H265_HEVC_MP3_HD_25f_420_all_media_from_sec_30_to_sec_90_add_2_sec_pts.ts_subtitle.ts"
+        }
+    ]
+}
