@@ -37,6 +37,22 @@
 #define STREAMTYPE_DTS_AUDIO 0x82
 #define TS_PACHET_LENGTH 188
 
+#define STREAM_ID_PROGRAM_STREAM_MAP  0xbc
+#define STREAM_ID_PRIVATE_STREAM_1    0xbd
+#define STREAM_ID_PADDING_STREAM      0xbe
+#define STREAM_ID_PRIVATE_STREAM_2    0xbf
+#define STREAM_ID_ECM_STREAM          0xf0
+#define STREAM_ID_EMM_STREAM          0xf1
+#define STREAM_ID_DSMCC_STREAM        0xf2
+#define STREAM_ID_13522_STREAM        0xf3
+#define STREAM_ID_H222_A_STREAM       0xf4
+#define STREAM_ID_H222_B_STREAM       0xf5
+#define STREAM_ID_H222_C_STREAM       0xf6
+#define STREAM_ID_H222_D_STREAM       0xf7
+#define STREAM_ID_H222_E_STREAM       0xf8
+#define STREAM_ID_ANCILLARY_STREAM    0xf9
+#define STREAM_ID_PROGRAM_STREAM_DIRECTORY  0xff
+
 /*------------------------------- Base Struct -------------------------------*/
 typedef struct TsPacketHeader
 {

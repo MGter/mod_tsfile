@@ -5,12 +5,17 @@
 #include <unistd.h>
 #include <string>
 #include <vector>
+#include <common/Log.h>
+#include <common/Tool.h>
 
 void printHelp();
 void releaseTasks(std::vector<TaskParam*>& task_list);
 void releaseModers(std::vector<ModTsFile*>& moder_list);
 
 int main(int argc, char* argv[]){
+    // 设置日志级别为debug
+    Log::initLogLevel();
+
     std::vector<TaskParam*> tasks;
     std::vector<ModTsFile*> moders;
     
@@ -19,10 +24,13 @@ int main(int argc, char* argv[]){
         return 0;
     }
 
+    Log::info(__FILE__, __LINE__, "Starting...");
+
+
     std::string conf_path = argv[1];
     std::ifstream file(conf_path.c_str());
     if(!file.is_open()){
-        std::cout << "Failed to open the file" << std::endl;
+        Log::error(__FILE__, __LINE__, "Failed to open the file");
     }
 
     std::string jsonStr((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
@@ -33,11 +41,11 @@ int main(int argc, char* argv[]){
 
 
     if(document["task_array"].Empty()){
-        std::cout << "task_array is not exist" << std::endl;
+        Log::error(__FILE__, __LINE__, "task_array is not exist");
     }
 
     if(!document["task_array"].IsArray()){
-        std::cout << "task_array is not a array" << std::endl;
+        Log::error(__FILE__, __LINE__, "task_array is not a array");
     }
     
     rapidjson::Value& task_array = document["task_array"];
@@ -49,11 +57,11 @@ int main(int argc, char* argv[]){
         if(!task_param->parseJson(task_array[i])){
             delete task_param;
             task_param = nullptr;
-            std::cout << "Failed to parse the task_param" << std::endl;
+            Log::error(__FILE__, __LINE__, "Failed to parse the task_param");
         }
         else{
             tasks.push_back(task_param);
-            std::cout << "Success to parse a task_param " << std::endl;
+            Log::info(__FILE__, __LINE__, "Success to parse a task_param ");
         }
     }
 
@@ -66,7 +74,7 @@ int main(int argc, char* argv[]){
         else{
             moder->Stop();
             delete moder;
-            std::cout << "Failed to create a new moder thread" << std::endl;
+            Log::error(__FILE__, __LINE__, "Failed to create a new moder thread ");
         }
     }
 
@@ -81,11 +89,11 @@ int main(int argc, char* argv[]){
         }
     }
 
-    std::cout << "Success to finish all the tasks" << std::endl;
+    Log::info(__FILE__, __LINE__, "Success to finish all the tasks");
     releaseTasks(tasks);
-    std::cout << "success to clear all the tasks" << std::endl;
+    Log::info(__FILE__, __LINE__, "success to clear all the tasks");
     releaseModers(moders);
-    std::cout << "success to clear all the moders" << std::endl;
+    Log::info(__FILE__, __LINE__, "success to clear all the moders");
     return 0;
 }
 

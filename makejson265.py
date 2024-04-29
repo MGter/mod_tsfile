@@ -92,7 +92,7 @@ class JsonMaker:
             
 if __name__ == "__main__":
     output_json_name = "output.json"
-    input_file = "CBR_5M_H265_HEVC_MP3_HD_25f_420.ts"
+    input_file = "CBR_5M_H265_HEVC_AAC_LC_HD_25f_420.ts"
     
     param_list = []
     
@@ -237,7 +237,7 @@ if __name__ == "__main__":
             command = "echo \"" + split + "\" >>    input.srt"
             os.system(command)
         param.input_file = param.output_file + "_subtitle.ts"
-        os.system("ffmpeg -i juemishiming.mp4 -c:v libx265 -b:v 4500k -minrate 4500k -maxrate 4500k -c:a mp3 -b:a 500k -bufsize 5000k -nal-hrd cbr -muxrate 5000k -vf \"subtitles=input.srt:force_style=force_style='Alignment=2,MarginV=240'\" -streamid 0:0x100 -streamid 1:0x101 " + str(param.input_file))
+        os.system("ffmpeg -i juemishiming.mp4 -c:v libx265 -b:v 4500k -minrate 4500k -maxrate 4500k -c:a aac -b:a 500k -bufsize 5000k -nal-hrd cbr -muxrate 5000k -vf \"subtitles=input.srt:force_style=force_style='Alignment=2,MarginV=240'\" -streamid 0:0x100 -streamid 1:0x101 " + str(param.input_file))
 
 
     # trying to make the json

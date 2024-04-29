@@ -1,37 +1,38 @@
 #include "parse_json.h"
+#include "common/Log.h"
 
 bool FuncPattern::parseJson(const rapidjson::Value& pattern) {
     if (!pattern.IsObject()) {
-        std::cout << "Invalid pattern format." << std::endl;
+        Log::error(__FILE__, __LINE__, "Invalid pattern format.");
         return false;
     }
 
     if (!pattern.HasMember("start_sec") || !pattern["start_sec"].IsInt()) {
-        std::cout << "Missing or invalid 'start_sec' value." << std::endl;
+        Log::error( __FILE__, __LINE__, "Missing or invalid 'start_sec' value.");
         return false;
     }
     start_sec = pattern["start_sec"].GetInt();
 
     if (!pattern.HasMember("end_sec") || !pattern["end_sec"].IsInt()) {
-        std::cout << "Missing or invalid 'end_sec' value." << std::endl;
+        Log::error( __FILE__, __LINE__, "Missing or invalid 'end_sec' value.");
         return false;
     }
     end_sec = pattern["end_sec"].GetInt();
 
     if (!pattern.HasMember("media") || !pattern["media"].IsString()) {
-        std::cout << "Missing or invalid 'media' value." << std::endl;
+        Log::error( __FILE__, __LINE__, "Missing or invalid 'media' value.");
         return false;
     }
     media = StrToMedia(pattern["media"].GetString());
 
     if (!pattern.HasMember("func") || !pattern["func"].IsString()) {
-        std::cout << "Missing or invalid 'func' value." << std::endl;
+        Log::error( __FILE__, __LINE__, "Missing or invalid 'func' value.");
         return false;
     }
     pts_func = StrToPtsFunc(pattern["func"].GetString());
 
     if (!pattern.HasMember("pts_base")) {
-        std::cout << "Missing 'func' value." << std::endl;
+        Log::error( __FILE__, __LINE__, "Missing 'func' value.");
     }
     else if(pattern["pts_base"].IsInt()){
         pts_base = pattern["pts_base"].GetInt();
@@ -58,30 +59,30 @@ void FuncPattern::printPattern(){
 
 bool TaskParam::parseJson(const rapidjson::Value& task_param) {
     if (!task_param.IsObject()) {
-        std::cout << "Invalid task_param format." << std::endl;
+        Log::error(__FILE__, __LINE__,  "Invalid task_param format.");
         return false;
     }
 
     if (!task_param.HasMember("id") || !task_param["id"].IsInt()) {
-        std::cout << "Missing or invalid 'id' value." << std::endl;
+        Log::error(__FILE__, __LINE__,  "Missing or invalid 'id' value.");
         return false;
     }
     id = task_param["id"].GetInt();
 
     if (!task_param.HasMember("input_file") || !task_param["input_file"].IsString()) {
-        std::cout << "Missing or invalid 'input_file' value." << std::endl;
+        Log::error(__FILE__, __LINE__,  "Missing or invalid 'input_file' value.");
         return false;
     }
     input_file = task_param["input_file"].GetString();
 
     if (!task_param.HasMember("output_file") || !task_param["output_file"].IsString()) {
-        std::cout << "Missing or invalid 'output_file' value." << std::endl;
+        Log::error(__FILE__, __LINE__,  "Missing or invalid 'output_file' value.");
         return false;
     }
     output_file = task_param["output_file"].GetString();
 
     if (!task_param.HasMember("pattern") || !task_param["pattern"].IsArray()) {
-        std::cout << "Missing or invalid 'pattern' value." << std::endl;
+        Log::error(__FILE__, __LINE__,  "Missing or invalid 'pattern' value.");
         return false;
     }
 
