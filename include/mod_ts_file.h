@@ -36,6 +36,7 @@
 #define STREAMTYPE_AC3_AUDIO 0x81
 #define STREAMTYPE_DTS_AUDIO 0x82
 #define TS_PACHET_LENGTH 188
+#define STREAMTYPE_HEVC_VIDEO 0x24
 
 #define STREAM_ID_PROGRAM_STREAM_MAP  0xbc
 #define STREAM_ID_PRIVATE_STREAM_1    0xbd
@@ -265,9 +266,20 @@ private:
     std::vector<std::pair<int, TsPMT*>> pmt_pair_list_; // 随时会被更新
 
     // 统计信息
-    long long program_pack_cnt = 0;
+    long long get_packet_cnt = 0;               // 获得的总packet数量
+    long long write_packet_cnt = 0;             // 写入的总packet数量
+
     long long repeated_pack_cnt = 0;
     long long lossed_pack_cnt = 0;
+
+    long long pat_packet_cnt = 0;
+    long long pmt_packet_cnt = 0;
+    long long audio_pack_cnt = 0;
+    long long video_pack_cnt = 0;
+
+    
+    long long unknown_packet_cnt = 0;  
+
 };
 
 /*------------------------------- Debugging Func -------------------------------*/

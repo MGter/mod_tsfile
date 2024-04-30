@@ -449,48 +449,62 @@ bool ModTsFile::threadInit(){
 
 // 清理
 void ModTsFile::threadDeinit(){
+    Log::info(__FILE__, __LINE__, "get ts cnt: %d", get_packet_cnt);
+    Log::info(__FILE__, __LINE__, "write ts cnt: %d", write_packet_cnt);
+
+    Log::info(__FILE__, __LINE__, "pat packet cnt: %d", pat_packet_cnt);
+    Log::info(__FILE__, __LINE__, "pmt packet cnt: %d", pmt_packet_cnt);
+    Log::info(__FILE__, __LINE__, "audio packet cnt: %d", audio_pack_cnt);
+    Log::info(__FILE__, __LINE__, "video packet cnt: %d", video_pack_cnt);
+    
+    Log::info(__FILE__, __LINE__, "unknown packet cnt: %d", unknown_packet_cnt);
+
     return;
 }
 
 // 线程工作单元
 ModeTsFileStatus ModTsFile::threadRunning(){
-    int loss_repeat_ans = 0;
-    // 获取一个包，提前确认尚未到达尾部
+    int loss_repeat_ans = 0;        // 判断是否增删文件
+    int cur_position = 0;           // 当前包处理位置
+    // 获取文件
     if(file_in_.eof()){
-        Log::debug(__FILE__, __LINE__, "Success to reach the end of file");
+        Log::error(__FILE__, __LINE__, "Success to reach the end of file, get %d ts packet", get_packet_cnt);
         return ModeTsFileStatus::Stop;
     }
     file_in_.read((char*)buffer, TS_PACHET_LENGTH);
+    get_packet_cnt++;   // 计算当前读入的ts_packet数量
 
-    int cur_position = 0;
-
-    // 解析ts packet header
+    // 解析ts头
     TsPacketHeader* ts_packet_header = TsPacketHeader::parseTsPacketHeader(buffer, TS_PACHET_LENGTH);
     if(ts_packet_header == nullptr){
         Log::error(__FILE__, __LINE__, "Failed to parse the ts packet header");
-        ModeTsFileStatus::Err;
+        return ModeTsFileStatus::Err;
     }
     cur_position += 4;
 
-    // 查看是否存在自适应区
-    // 如果还有adaption_field_control字段，注意：指定的是此段外的长度
+    // 跳过自适应区
     if(ts_packet_header->adaption_field_control == 0x2 || ts_packet_header->adaption_field_control == 0x3){
         cur_position += (unsigned)buffer[cur_position];
         cur_position ++;
     }
-    // 没有adaption_filed_control
+    // 有负载`
     else if(ts_packet_header->adaption_field_control == 0b01){
         cur_position += 0;
     }
-    // 什么都没有，直接写入
+    // 无负载
     else{
+        unknown_packet_cnt++;
         file_out_.write((const char*)buffer, TS_PACHET_LENGTH);
+        write_packet_cnt++;
+        if(get_packet_cnt != write_packet_cnt){
+            Log::error(__FILE__, __LINE__, "Read packet cnt(%d) is not equal to write packet cnd(%d)", get_packet_cnt, write_packet_cnt);
+        }
         return ModeTsFileStatus::Running;
     }
 
-
     // PAT 表
     if(ts_packet_header->pid == 0){
+        pat_packet_cnt++;
         // 如果是PSI表，而且payload_unit_start_indicator为1的情况下，会有一个字节的空填充
         if(ts_packet_header->payload_unit_start_indicator == 0b1){
             cur_position++;
@@ -515,8 +529,8 @@ ModeTsFileStatus ModTsFile::threadRunning(){
             new_pat = nullptr;
             Log::error(__FILE__, __LINE__, "Failed to parse the pat table");
         }
-
-        // 查看是否需要被删除
+        
+        // 确认是否需要被删除
         loss_repeat_ans = shouldDeleteThisPack(Media::all, ts_packet_header->pid);
     }
     // 非PAT表
@@ -524,15 +538,14 @@ ModeTsFileStatus ModTsFile::threadRunning(){
         int pid = ts_packet_header->pid;
         // PMT表，更新PMT表
         if(isPmtPacket(pid)){
+            pmt_packet_cnt++;
             // pmt也是PSI的一种，如果此处为start，也会填充一个空白字节
             if(ts_packet_header->payload_unit_start_indicator == 0b1){
                 cur_position++;
             }
             TsPMT* cur_pmt = TsPMT::parsePMT(&buffer[cur_position], TS_PACHET_LENGTH - cur_position);
             if(cur_pmt != nullptr){
-                // 查看是否存在，存在就更新，不存在就添加
                 if(hasPmtNodeFromList(pid)){
-                    // std::cout << "[DEBUG] has pmt for pid " << pid << ", do refresh" << std::endl;
                     refreshPmtNodeIntoList(pid, cur_pmt);
                 }
                 else{
@@ -542,26 +555,24 @@ ModeTsFileStatus ModTsFile::threadRunning(){
             else{
                 // 没能解析出来就不管了
             }
-            // 查看是否需要删除
-            // 但是不能直接删除，必须最后决定是否删除
-            // 如果直接删除了，就无法拿到后续消息
-            loss_repeat_ans = shouldDeleteThisPack(Media::all, pid);
-            if(loss_repeat_ans < 0){
-                Log::debug(__FILE__, __LINE__, "TEST: delete a pmt");
-            }
-        }
-        // 当前是audio packet的情况，进行修改
-        else if(isAudioPacket(pid)){
-            program_pack_cnt++;
 
-            // 查找pts是否成功，因为要返回绝对position，
-            // 此处其实是从pes处开始查找
-            std::pair<unsigned, unsigned> pts_pair =  findPtsfromPes(&buffer[cur_position], TS_PACHET_LENGTH - cur_position);
-            // 对找到的进行修改
+            // 查看是否删除此ts包
+            loss_repeat_ans = shouldDeleteThisPack(Media::all, pid);
+        }
+        // audio包
+        else if(isAudioPacket(pid)){
+            audio_pack_cnt++;
+
+            // 获取pts时间
+            std::pair<unsigned, unsigned> pts_pair = std::pair<unsigned, unsigned>(0,0);
+            if(ts_packet_header->payload_unit_start_indicator == 0b1){
+                Log::info(__FILE__, __LINE__, "Gat a audio pes load header!");
+                pts_pair = findPtsfromPes(&buffer[cur_position], TS_PACHET_LENGTH - cur_position);
+            }
             
             int64_t final_pts_change = 0;
             if(pts_pair.first != 0){
-                //std::cout << "Get pts time" << std::endl;
+                Log::debug(__FILE__, __LINE__, "Gat a audio pts!");
                 int position = cur_position + pts_pair.first;
                 int buffer_length = TS_PACHET_LENGTH - position;
                 if(start_pts_ == 0){
@@ -569,24 +580,21 @@ ModeTsFileStatus ModTsFile::threadRunning(){
                 }
                 cur_pts_ = combinePts((char*)&buffer[position]);
                 cur_time_ = getTimeDiff(start_pts_, cur_pts_);
-                Log::debug(__FILE__, __LINE__, "Cur Audio Time is %d", cur_time_);
-                Log::debug(__FILE__, __LINE__, "Cur Audio Pts is %d", cur_pts_);
-
+                Log::debug(__FILE__, __LINE__, "Cur audio time: %f, pts: ", cur_time_, cur_pts_);
                 if(end_time_ > 0 && cur_time_ > end_time_){
-                    Log::debug(__FILE__, __LINE__, "Overtime: cur time is %d, cur pts is %d", cur_time_, cur_pts_);
+                    Log::info(__FILE__, __LINE__, "Over time at %f, pts is %d end time is %d so stop", cur_time_, cur_pts_, end_time_);
                     return ModeTsFileStatus::Stop;
                 }
 
                 // 获取当前pts跳变情况
-                int pts_change = getPtsChange(Media::audio, cur_pts_);
+                int64_t pts_change = getPtsChange(Media::audio, cur_pts_);
                 final_pts_change += pts_change;
 
-                // 如果不为0再进行修改
+                // 对需要进行修改pts的部分进行修改
                 if(final_pts_change != 0){
                     changePTS(&buffer[position], buffer_length, final_pts_change);
-                    Log::debug(__FILE__, __LINE__, "Change pts at %d, add %d", cur_time_, final_pts_change);
+                    Log::info(__FILE__, __LINE__, "Change pts at %f, add %d", cur_time_, final_pts_change);
                 }
-
             }
             if(pts_pair.second != 0){
                 int position = cur_position + pts_pair.second;
@@ -596,6 +604,7 @@ ModeTsFileStatus ModTsFile::threadRunning(){
 
             // 如果需要填充空包，就直接填充
             if(shouldFillWithNull(Media::audio)){
+                Log::info(__FILE__, __LINE__, "Fill with a null pack to a audio pack");
                 writeNullPack((char*)buffer, TS_PACHET_LENGTH);
             }
 
@@ -604,14 +613,17 @@ ModeTsFileStatus ModTsFile::threadRunning(){
         }
         // 当前是video packet的情况，进行修改
         else if(isVideoPacket(pid)){
-            program_pack_cnt++;
-            
-            // 查找pts是否成功，因为要返回绝对position，因此
-            std::pair<unsigned, unsigned> pts_pair = findPtsfromPes(&buffer[cur_position], TS_PACHET_LENGTH - cur_position);
-            // 对找到的进行修改
+            video_pack_cnt++;
+
+            std::pair<unsigned, unsigned> pts_pair = std::pair<unsigned, unsigned>(0,0);
+            if(ts_packet_header->payload_unit_start_indicator == 0b1){
+                Log::info(__FILE__, __LINE__, "Gat a video pes load header!");
+                pts_pair = findPtsfromPes(&buffer[cur_position], TS_PACHET_LENGTH - cur_position);
+            }
+
             int64_t final_pts_change = 0;
             if(pts_pair.first != 0){
-                //std::cout << "Get pts time" << std::endl;
+                Log::debug(__FILE__, __LINE__, "Gat a video pts!");
                 int position = cur_position + pts_pair.first;
                 int buffer_length = TS_PACHET_LENGTH - position;
                 if(start_pts_ == 0){
@@ -619,10 +631,10 @@ ModeTsFileStatus ModTsFile::threadRunning(){
                 }
                 cur_pts_ = combinePts((char*)&buffer[position]);
                 cur_time_ = getTimeDiff(start_pts_, cur_pts_);
-                std::cout << "[DEBUG] Cur Video Time is " << cur_time_ << std::endl;
-                std::cout << "[DEBUG] Cur Video Pts " << cur_pts_ << std::endl;
+
+                Log::debug(__FILE__, __LINE__, "Cur video time: %f, pts: ", cur_time_, cur_pts_);
                 if(end_time_ > 0 && cur_time_ > end_time_){
-                    // 如果当前解析出来的时间已经超时了，就直接退出
+                    Log::info(__FILE__, __LINE__, "Over time at %f, pts is %d end time is %d so stop", cur_time_, cur_pts_, end_time_);
                     return ModeTsFileStatus::Stop;
                 }
 
@@ -632,11 +644,12 @@ ModeTsFileStatus ModTsFile::threadRunning(){
 
                 // 如果不为0再进行修改
                 if(final_pts_change != 0){
-                changePTS(&buffer[position], buffer_length, final_pts_change);
-                std::cout << "[DEBUG] change pts at "<< cur_time_ << " add " << final_pts_change << std::endl;
+                    changePTS(&buffer[position], buffer_length, final_pts_change);
+                    Log::info(__FILE__, __LINE__, "Change pts at %f, add %d", cur_time_, final_pts_change);
                 }
             }
             if(pts_pair.second != 0){
+                Log::debug(__FILE__, __LINE__, "Gat a video dts!");
                 int position = cur_position + pts_pair.second;
                 int buffer_length = TS_PACHET_LENGTH - position;
                 changePTS(&buffer[position], buffer_length, final_pts_change);
@@ -644,35 +657,37 @@ ModeTsFileStatus ModTsFile::threadRunning(){
 
             // 如果需要填充空包，就直接填充
             if(shouldFillWithNull(Media::video)){
+                Log::info(__FILE__, __LINE__, "Fill with a null pack to a video pack");
                 writeNullPack((char*)buffer, TS_PACHET_LENGTH);
             }
 
             // 对时间进行更新后再决定对本包的处理
             loss_repeat_ans = shouldDeleteThisPack(Media::video, pid);
         }
+        else{
+            unknown_packet_cnt++;
+        }
     }
     // 未解析出pat表，无法进行，直接跳过
     else{
-        ;
+        Log::error(__FILE__, __LINE__, "No pat now!");
+        unknown_packet_cnt++;
     }
 
-
-
-    // 如果需要重复
     if(loss_repeat_ans > 0){
-        // std::cout << "[DEBUG] Success to repeate one pack at " << cur_time_ << std::endl;
+        Log::info(__FILE__, __LINE__, "Repeate a ts pack at time: %f, pts: %d", cur_time_, cur_pts_);
         repeated_pack_cnt++;
         file_out_.write((const char*)buffer, TS_PACHET_LENGTH);
         file_out_.write((const char*)buffer, TS_PACHET_LENGTH);
+        write_packet_cnt +=2;
     }
-    // 如果需要删除，就跳不写入了
     else if(loss_repeat_ans < 0){
         lossed_pack_cnt++;
-        std::cout << "[DEBUG] Success to loss one pack" << std::endl;
+        Log::info(__FILE__, __LINE__, "Delete a ts pack at time: %f, pts: %d", cur_time_, cur_pts_);
         return ModeTsFileStatus::Running;
     }
-    // 如果没啥变化，就正常写入
     else{
+        write_packet_cnt++;
         file_out_.write((const char*)buffer, TS_PACHET_LENGTH);
         return ModeTsFileStatus::Running;
     }
@@ -685,7 +700,7 @@ int64_t ModTsFile::getPtsChange(Media media_type,u_int64_t cur_pts){
         FuncPattern* pattern = *iter;
         // 超时的pts pattern删除
         if(cur_time_ > pattern->end_sec){
-            std::cout << "At sec" << cur_time_ <<  ", pattern overtime, so do delete" << std::endl;
+            Log::info(__FILE__, __LINE__, "At sec %f, pattern overtime, so delete a pattern", cur_time_);
             delete pattern;
             pattern = nullptr;
             pts_pattern_list_.erase(iter);
@@ -857,34 +872,17 @@ std::pair<unsigned, unsigned> ModTsFile::findPtsfromPes(u_char* buffer, int buff
 
     // 有optional header与pts/dts，先移动位置
     cur_position += 3;
-    // dts_pts同时存在
-    static int err_pts_cnt = 0;
+
     if(optional_pes_header->pts_dts_indicator == 0b11){
-        u_char temp_buffer = buffer[cur_position];
-        if(verifyHighFourBits(temp_buffer, (const u_char)0b11))
-            return std::make_pair(cur_position, cur_position+5);
-        else{
-            std::cout << "[DEBUG] Errrrrrr pts dts! " << err_pts_cnt++ << std::endl;
-            return std::make_pair(0, 0);
-        }
-            
+        return std::make_pair(cur_position, cur_position+5);
     }
     // 只有dts存在
     else if(optional_pes_header->pts_dts_indicator == 0b10){
-        u_char temp_buffer = buffer[cur_position];
-        if(verifyHighFourBits(temp_buffer, (const u_char)0b10))
-            return std::make_pair(cur_position, cur_position+5);
-        else{
-            std::cout << "[DEBUG] Errrrrrr just dts! " << err_pts_cnt++ << std::endl;
-            return std::make_pair(0, 0);
-        }
-
-            
-
         return std::make_pair(cur_position, 0);
     }
-    else
+    else{
         return std::make_pair(0,0);
+    }
 }
 
 // 从字节中获取pts的数�?/其实pts和dts储存数值的位置都是一样的
@@ -968,7 +966,7 @@ bool ModTsFile::isPmtPacket(const int pid){
     return false;
 }
 
-// 查找pid是否为视频
+// 查找pid是否为音频
 bool ModTsFile::isAudioPacket(const int pid){
     if(pat_ == nullptr){
         return false;
@@ -1005,7 +1003,7 @@ bool ModTsFile::isAudioPacket(const int pid){
     }
 }
 
-// 查找pid是否为音频
+// 查找pid是否为视频
 bool ModTsFile::isVideoPacket(const int pid){
     if(pat_ == nullptr){
         return false;
@@ -1072,6 +1070,7 @@ bool ModTsFile::isVideoStream(uint8_t streamType) {
         case STREAMTYPE_13818_VIDEO:
         case STREAMTYPE_H264_VIDEO:
         case STREAMTYPE_AVS_VIDEO:
+        case STREAMTYPE_HEVC_VIDEO:
             return true;
         default:
             return false;

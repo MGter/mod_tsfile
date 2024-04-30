@@ -21,37 +21,65 @@ void Log::setLogPath(std::string logPath){
 }
 
 
-void Log::debug(const char* file, const int line, const char* message, ...) {
+void Log::debug(const char* file, const int line, const char* format, ...) {
     if (m_logLevel <= DEBUG) {
         std::string timeString;
         getCurrentTime(timeString);
+
+        char message[256]; 
+        va_list args;
+        va_start(args, format);
+        std::vsnprintf(message, 255, format, args);
+        va_end(args);
+
         std::string logLine = "[" + timeString + "][DEBUG][" + file + ":" + std::to_string(line) + "] " + message + "\n"; 
         writeLog(logLine);
     }
 }
 
-void Log::info(const char* file, const int line, const char* message, ...) {
+void Log::info(const char* file, const int line, const char* format, ...) {
     if (m_logLevel <= INFO) {
         std::string timeString;
         getCurrentTime(timeString);
+
+        char message[256]; 
+        va_list args;
+        va_start(args, format);
+        std::vsnprintf(message, 255, format, args);
+        va_end(args);
+
         std::string logLine = "[" + timeString + "][INFO][" + file + ":" + std::to_string(line) + "] " + message + "\n";
         writeLog(logLine);
     }
 }
 
-void Log::warning(const char* file, const int line, const char* message, ...) {
+void Log::warning(const char* file, const int line, const char* format, ...) {
     if (m_logLevel <= WARNING) {
         std::string timeString;
         getCurrentTime(timeString);
+
+        char message[256]; 
+        va_list args;
+        va_start(args, format);
+        std::vsnprintf(message, 255, format, args);
+        va_end(args);
+
         std::string logLine = "[" + timeString + "][WARNING][" + file + ":" + std::to_string(line) + "] " + message + "\n";
         writeLog(logLine);
     }
 }
 
-void Log::error(const char* file, const int line, const char* message, ...) {
+void Log::error(const char* file, const int line, const char* format, ...) {
     if (m_logLevel <= ERROR) {
         std::string timeString;
         getCurrentTime(timeString);
+    
+        char message[256]; 
+        va_list args;
+        va_start(args, format);
+        std::vsnprintf(message, 255, format, args);
+        va_end(args);
+
         std::string logLine = "[" + timeString + "][ERROR][" + file + ":" + std::to_string(line) + "] " + message + "\n";
         writeLog(logLine);
     }
