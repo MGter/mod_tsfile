@@ -34,8 +34,9 @@ bool FuncPattern::parseJson(const rapidjson::Value& pattern) {
     if (!pattern.HasMember("pts_base")) {
         Log::error( __FILE__, __LINE__, "Missing 'func' value.");
     }
-    else if(pattern["pts_base"].IsInt()){
-        pts_base = pattern["pts_base"].GetInt();
+    else if(pattern["pts_base"].IsInt64()){
+        pts_base = pattern["pts_base"].GetInt64();
+        std::cout << "pts_base is " << pts_base << std::endl;
     }
     else if(pattern["pts_base"].IsFloat()){
         pts_base = pattern["pts_base"].GetFloat();

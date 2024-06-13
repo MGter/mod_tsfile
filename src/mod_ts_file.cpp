@@ -593,7 +593,7 @@ ModeTsFileStatus ModTsFile::threadRunning(){
                 // 对需要进行修改pts的部分进行修改
                 if(final_pts_change != 0){
                     changePTS(&buffer[position], buffer_length, final_pts_change);
-                    Log::info(__FILE__, __LINE__, "Change pts at %f, add %d", cur_time_, final_pts_change);
+                    Log::info(__FILE__, __LINE__, "Change pts at %f, add %lld", cur_time_, final_pts_change);
                 }
             }
             if(pts_pair.second != 0){
@@ -639,13 +639,16 @@ ModeTsFileStatus ModTsFile::threadRunning(){
                 }
 
                 // 获取当前pts跳变情况
-                int pts_change = getPtsChange(Media::video, cur_pts_);
-                final_pts_change += pts_change;
+                int64_t pts_change = getPtsChange(Media::video, cur_pts_);
+                if(pts_change != 0){
+                    final_pts_change += pts_change;
+                }
+                
 
                 // 如果不为0再进行修改
                 if(final_pts_change != 0){
                     changePTS(&buffer[position], buffer_length, final_pts_change);
-                    Log::info(__FILE__, __LINE__, "Change pts at %f, add %d", cur_time_, final_pts_change);
+                    Log::info(__FILE__, __LINE__, "Change pts at %f, add %lld", cur_time_, final_pts_change);
                 }
             }
             if(pts_pair.second != 0){
@@ -739,7 +742,6 @@ int64_t ModTsFile::getPtsChange(Media media_type,u_int64_t cur_pts){
                 std::cout << "[DEBUG] No pattern compare" << std::endl;
                 break;
             }
-            // std::cout << "[DEBUG] After change, now pts_change is " << pts_change << std::endl;
         }
     }
     return pts_change;
@@ -751,12 +753,37 @@ bool ModTsFile::changePTS(u_char* buffer, int buffer_length, int64_t pts_change)
     if(buffer == nullptr){
         return false;
     }
+    bool positive = true;
+    if(pts_change < 0){
+        positive = false;
+    }
+    uint64_t u_pts_change = 0;
+    if(positive){
+        u_pts_change = pts_change;
+    }
+    else{
+        u_pts_change = -pts_change;
+    }
 
-    //将pts中的pts生成int_64_t
-    int64_t pts_num = combinePts((char*)buffer);
-    // 修改pts
-    pts_num += pts_change;
-    // 重新写回 payload�?
+
+    uint64_t pts_num = combinePts((char*)buffer);
+    std::cout << "u_pts_change is " << u_pts_change<< std::endl;
+    std::cout << "pts_num is " << pts_num << std::endl;
+
+    if(positive){
+        pts_num += u_pts_change;
+        if(pts_num > 8589934591L){
+            pts_num -= 8589934591L;
+        }
+    }
+    else{
+        if(u_pts_change > pts_num){
+            pts_num += 8589934591L;
+        }
+        pts_num -= u_pts_change;
+    }
+
+    std::cout << "Final pts_num is " << pts_num << std::endl;
     rewritePts((char*)buffer, pts_num);
     return true;
 }
@@ -766,12 +793,22 @@ bool ModTsFile::changeDTS(u_char* buffer, int buffer_length, int64_t dts_change)
     if(buffer == nullptr){
         return false;
     }
+    uint64_t u_pts_change = dts_change;
+    bool add = true;
+    if(dts_change < 0){
+        add = false;
+    }
 
-    //将pts中的pts生成int_64_t
-    int64_t pts_num = combinePts((char*)buffer);
-    // 修改pts
-    pts_num += dts_change;
-    // 重新写回 payload�?
+    uint64_t pts_num = combinePts((char*)buffer);
+    if(add){
+        pts_num += u_pts_change;
+    }
+    else{
+        if(u_pts_change > pts_num){
+            pts_num += 8589934591L;
+            pts_num -= u_pts_change;
+        }
+    }
     rewritePts((char*)buffer, pts_num);
     return true;
 }
@@ -779,6 +816,9 @@ bool ModTsFile::changeDTS(u_char* buffer, int buffer_length, int64_t dts_change)
 // 覆写pts
 void ModTsFile::rewritePts(char* payload, u_int64_t pts){
     // 清空buffer
+    char basic_marker = payload[0];
+    basic_marker &= 0b11110001;
+
     for(int i = 0; i < 5; i++)
         payload[i] = 0;
     // 传入对应的内�?
@@ -789,14 +829,16 @@ void ModTsFile::rewritePts(char* payload, u_int64_t pts){
     payload[4] = (char)((pts << 1) & 0xFE);
 
     // 添加标记�?
-    payload[0] |= 0b00110001;
+    payload[0] |= basic_marker;
     payload[2] |= 0b00000001;
     payload[4] |= 0b00000001;
+
     // 返回
     return ;
 }
 
 // 覆写dts
+/*
 void ModTsFile::rewriteDts(char* payload, u_int64_t dts){
     // 清空payload
     for(int i = 0; i < 5; i++)
@@ -812,9 +854,13 @@ void ModTsFile::rewriteDts(char* payload, u_int64_t dts){
     payload[0] |= 0b00010001;
     payload[2] |= 0b00000001;
     payload[4] |= 0b00000001;
+
+
+    
     // 返回
     return ;
 }
+*/
 
 // 查看是否成功
 bool ModTsFile::Success(){
