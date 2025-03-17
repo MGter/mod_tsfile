@@ -237,7 +237,7 @@ if __name__ == "__main__":
             os.system(command)
         param.input_file = param.output_file + "_subtitle.ts"
         os.system("ffmpeg -i juemishiming.mp4 -g 25 -r 25 -s 1920x1080 -c:v libx264 -b:v 4000k -minrate 4000k -maxrate 4000k -c:a aac -b:a 500k -bufsize 5000k -nal-hrd cbr -muxrate 5000k -vf \"subtitles=input.srt:force_style=force_style='Alignment=2,MarginV=240'\" -streamid 0:0x102 -streamid 1:0x103 " + str(param.input_file))
-
+        # ffmpeg -i Hellblade.mp4 -g 25 -r 25 -s 1920x1080 -c:v libx264 -b:v 5500k -minrate 5500k -maxrate 5500k -c:a aac -b:a 256k -bufsize 5500k -nal-hrd cbr -muxrate 6000k -streamid 0:0x102 -streamid 1:0x103 output.ts
 
     # trying to make the json
     maker = JsonMaker()
