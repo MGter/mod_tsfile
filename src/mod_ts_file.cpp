@@ -1116,6 +1116,8 @@ bool ModTsFile::isVideoStream(uint8_t streamType) {
         case STREAMTYPE_13818_VIDEO:
         case STREAMTYPE_H264_VIDEO:
         case STREAMTYPE_AVS_VIDEO:
+        case STREAMTYPE_AVS2_VIDEO:
+        case STREAMTYPE_AVS3_VIDEO:
         case STREAMTYPE_HEVC_VIDEO:
             return true;
         default:
