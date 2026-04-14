@@ -37,7 +37,7 @@
 #define STREAMTYPE_AVS3_VIDEO 0xD4
 #define STREAMTYPE_AC3_AUDIO 0x81
 #define STREAMTYPE_DTS_AUDIO 0x82
-#define TS_PACHET_LENGTH 188
+#define TS_PACKET_LENGTH 188
 #define STREAMTYPE_HEVC_VIDEO 0x24
 
 #define STREAM_ID_PROGRAM_STREAM_MAP  0xbc
@@ -160,11 +160,11 @@ public:
     static OptionalPesHeader* parseOptionalPesHeader(u_char* buffer, int buffer_length);
 } OptionalPesHeader;    //24 bits, 3 bytes
 
-typedef enum ModeTsFileStatus{
+typedef enum ModTsFileStatus{
     Running,
     Stop,
     Err
-}ModeTsFileStatus;
+}ModTsFileStatus;
 
 /*------------------------------- Working Func -------------------------------*/
 class ModTsFile{
@@ -186,7 +186,7 @@ private:
     void doParsing();
     bool threadInit();
     void threadDeinit();
-    ModeTsFileStatus    threadRunning();
+    ModTsFileStatus    threadRunning();
     std::mutex          thread_mut;
 
     /*----------------------------解析------------------------------*/    
@@ -215,7 +215,7 @@ private:
     /*----------------------------辅助------------------------------*/
     // 文件相关
     std::string removeSuffix(const std::string& str, const std::string& suffix);
-    bool changeOutoutFile(std::ofstream* file_out, std::string& file_name, int slice_count);
+    bool changeOutputFile(std::ofstream* file_out, std::string& file_name, int slice_count);
 
     // pmt表相关
     // 从新的pat中更新pmt列表，删除当前不再存在的pmt结构
@@ -225,6 +225,7 @@ private:
     bool isPmtPacket(const int pid);
     bool isAudioPacket(const int pid);
     bool isVideoPacket(const int pid);
+    uint8_t getStreamTypeByPid(const int pid);  // 内部辅助函数
     bool isVideoStream(uint8_t streamType);
     bool isAudioStream(uint8_t streamType);
 
@@ -233,7 +234,7 @@ private:
     TaskParam* task_param_;
 
     // 按类型分类参数
-    FuncPattern* cut_param_;
+    FuncPattern* cut_param_ = nullptr;
     std::vector<FuncPattern*> pts_pattern_list_;        // pts跳变的参数
     std::vector<FuncPattern*> loss_repeat_list_;        // 重复/丢包参数列表
     std::vector<FuncPattern*> ts_err_list_;             // ts层文件数据变更
@@ -243,7 +244,7 @@ private:
     std::ofstream file_out_;
 
     // buffer
-    u_char buffer[TS_PACHET_LENGTH];
+    u_char buffer[TS_PACKET_LENGTH];
 
     // 启动相关
     bool be_started_;
@@ -252,7 +253,7 @@ private:
     // 线程相关
     bool thread_be_running_;
     std::thread parsing_thread_;
-    ModeTsFileStatus statu_;
+    ModTsFileStatus statu_;
 
     // 时间相关
     u_int64_t start_pts_;

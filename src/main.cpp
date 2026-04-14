@@ -30,7 +30,8 @@ int main(int argc, char* argv[]){
     std::string conf_path = argv[1];
     std::ifstream file(conf_path.c_str());
     if(!file.is_open()){
-        Log::error(__FILE__, __LINE__, "Failed to open the file");
+        Log::error(__FILE__, __LINE__, "Failed to open config file: %s", conf_path.c_str());
+        return 1;
     }
 
     std::string jsonStr((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
@@ -39,20 +40,26 @@ int main(int argc, char* argv[]){
     rapidjson::Document document;
     document.Parse(jsonStr.c_str());
 
+    if(document.HasParseError()){
+        Log::error(__FILE__, __LINE__, "JSON parse error at offset %zu", document.GetErrorOffset());
+        return 1;
+    }
 
     if(!document.HasMember("task_array") || !document["task_array"].IsArray()){
-        Log::error(__FILE__, __LINE__, "task_array is not exist or not a array");
+        Log::error(__FILE__, __LINE__, "task_array is missing or not an array");
+        return 1;
     }
 
     if(document["task_array"].Empty()){
         Log::error(__FILE__, __LINE__, "task_array is empty");
+        return 1;
     }
 
     rapidjson::Value& task_array = document["task_array"];
     
 
-    // 解task列表
-    for(int i = 0; i < task_array.Size(); i++){
+    // 解析task列表
+    for(size_t i = 0; i < task_array.Size(); i++){
         TaskParam* task_param = new TaskParam;
         if(!task_param->parseJson(task_array[i])){
             delete task_param;

@@ -4,6 +4,7 @@
 
 /*------------------------------- Base Struct -------------------------------*/
 TsPAT* TsPAT::parsePAT(u_char* buffer, int buffer_length) {
+    (void)buffer_length;  // 未使用但保留以兼容接口
     if(buffer == nullptr){
         return nullptr;
     }
@@ -50,6 +51,7 @@ TsPAT* TsPAT::parsePAT(u_char* buffer, int buffer_length) {
 
 TsPMT* TsPMT::parsePMT(u_char* buffer, int buffer_length)
 {
+    (void)buffer_length;  // 未使用但保留以兼容接口
     if(buffer == nullptr){
         Log::error(__FILE__, __LINE__, "Parse PMT: null buffer or out of buffer length");
         return nullptr;
@@ -74,9 +76,6 @@ TsPMT* TsPMT::parsePMT(u_char* buffer, int buffer_length)
     packet->last_section_number = buffer[7];
     packet->reserved_3 = buffer[8] >> 5;
     packet->PCR_PID = ((buffer[8] & 0x1F) << 8) | buffer[9];
-
-    // Store PCR_PID value in a variable
-    unsigned int PCRID = packet->PCR_PID;
 
     packet->reserved_4 = buffer[10] >> 4;
     packet->program_info_length = ((buffer[10] & 0x0F) << 8) | buffer[11];
@@ -209,7 +208,7 @@ ModTsFile::ModTsFile(TaskParam* task_param){
 
     // 线程相关
     thread_be_running_ = false;
-    statu_ = ModeTsFileStatus::Stop;
+    statu_ = ModTsFileStatus::Stop;
 
     // 时间相关，当前pts
     start_pts_ = 0;
@@ -386,19 +385,19 @@ void ModTsFile::doParsing(){
     }
 
     // 线程运行
-    statu_ = ModeTsFileStatus::Running;
-    while(statu_ != ModeTsFileStatus::Stop){
+    statu_ = ModTsFileStatus::Running;
+    while(statu_ != ModTsFileStatus::Stop){
         std::lock_guard<std::mutex> locker(thread_mut);
         switch (statu_)
         {
-        case ModeTsFileStatus::Running:
+        case ModTsFileStatus::Running:
             statu_ = threadRunning();
             break;
-        case ModeTsFileStatus::Err:
-            statu_ = ModeTsFileStatus::Stop;
+        case ModTsFileStatus::Err:
+            statu_ = ModTsFileStatus::Stop;
             break;
         default:
-            statu_ = ModeTsFileStatus::Stop;
+            statu_ = ModTsFileStatus::Stop;
             break;
         }
     };
@@ -432,23 +431,31 @@ void ModTsFile::threadDeinit(){
 }
 
 // 线程工作单元
-ModeTsFileStatus ModTsFile::threadRunning(){
+ModTsFileStatus ModTsFile::threadRunning(){
     int loss_repeat_ans = 0;        // 判断是否增删文件
     int cur_position = 0;           // 当前包处理位置
+
     // 获取文件
     if(file_in_.eof()){
-        Log::error(__FILE__, __LINE__, "Success to reach the end of file, get %d ts packet", get_packet_cnt);
-        return ModeTsFileStatus::Stop;
+        Log::info(__FILE__, __LINE__, "Success to reach the end of file, get %d ts packet", get_packet_cnt);
+        return ModTsFileStatus::Stop;
     }
-    file_in_.read((char*)buffer, TS_PACHET_LENGTH);
+    file_in_.read((char*)buffer, TS_PACKET_LENGTH);
     get_packet_cnt++;   // 计算当前读入的ts_packet数量
 
-    // 解析ts头
-    TsPacketHeader* ts_packet_header = TsPacketHeader::parseTsPacketHeader(buffer, TS_PACHET_LENGTH);
-    if(ts_packet_header == nullptr){
-        Log::error(__FILE__, __LINE__, "Failed to parse the ts packet header");
-        return ModeTsFileStatus::Err;
-    }
+    // 解析ts头（使用栈上对象避免内存泄漏）
+    TsPacketHeader ts_header;
+    u_char* buf_ptr = buffer;
+    ts_header.sync_byte = buf_ptr[0];
+    ts_header.transport_error_indicator = (buf_ptr[1] >> 7) & 0x01;
+    ts_header.payload_unit_start_indicator = (buf_ptr[1] >> 6) & 0x01;
+    ts_header.transport_priority = (buf_ptr[1] >> 5) & 0x01;
+    ts_header.pid = ((buf_ptr[1] & 0x1F) << 8) | buf_ptr[2];
+    ts_header.transport_scrambling_control = (buf_ptr[3] >> 6) & 0x03;
+    ts_header.adaption_field_control = (buf_ptr[3] >> 4) & 0x03;
+    ts_header.continuity_counter = buf_ptr[3] & 0x0F;
+
+    TsPacketHeader* ts_packet_header = &ts_header;
     cur_position += 4;
 
     // 跳过自适应区
@@ -456,19 +463,16 @@ ModeTsFileStatus ModTsFile::threadRunning(){
         cur_position += (unsigned)buffer[cur_position];
         cur_position ++;
     }
-    // 有负载`
+    // 有负载
     else if(ts_packet_header->adaption_field_control == 0b01){
         cur_position += 0;
     }
     // 无负载
     else{
         unknown_packet_cnt++;
-        file_out_.write((const char*)buffer, TS_PACHET_LENGTH);
+        file_out_.write((const char*)buffer, TS_PACKET_LENGTH);
         write_packet_cnt++;
-        if(get_packet_cnt != write_packet_cnt){
-            Log::error(__FILE__, __LINE__, "Read packet cnt(%d) is not equal to write packet cnd(%d)", get_packet_cnt, write_packet_cnt);
-        }
-        return ModeTsFileStatus::Running;
+        return ModTsFileStatus::Running;
     }
 
     // PAT 表
@@ -478,7 +482,7 @@ ModeTsFileStatus ModTsFile::threadRunning(){
         if(ts_packet_header->payload_unit_start_indicator == 0b1){
             cur_position++;
         }
-        TsPAT* new_pat = TsPAT::parsePAT(&buffer[cur_position], TS_PACHET_LENGTH - cur_position);
+        TsPAT* new_pat = TsPAT::parsePAT(&buffer[cur_position], TS_PACKET_LENGTH - cur_position);
         if(new_pat != nullptr){
             Log::debug(__FILE__, __LINE__, "Success to read a pat");
             Log::debug(__FILE__, __LINE__, "this pat has %d programs", new_pat->program.size());
@@ -498,7 +502,7 @@ ModeTsFileStatus ModTsFile::threadRunning(){
             new_pat = nullptr;
             Log::error(__FILE__, __LINE__, "Failed to parse the pat table");
         }
-        
+
         // 确认是否需要被删除
         loss_repeat_ans = shouldDeleteThisPack(Media::all, ts_packet_header->pid);
     }
@@ -512,7 +516,7 @@ ModeTsFileStatus ModTsFile::threadRunning(){
             if(ts_packet_header->payload_unit_start_indicator == 0b1){
                 cur_position++;
             }
-            TsPMT* cur_pmt = TsPMT::parsePMT(&buffer[cur_position], TS_PACHET_LENGTH - cur_position);
+            TsPMT* cur_pmt = TsPMT::parsePMT(&buffer[cur_position], TS_PACKET_LENGTH - cur_position);
             if(cur_pmt != nullptr){
                 if(hasPmtNodeFromList(pid)){
                     refreshPmtNodeIntoList(pid, cur_pmt);
@@ -536,14 +540,14 @@ ModeTsFileStatus ModTsFile::threadRunning(){
             std::pair<unsigned, unsigned> pts_pair = std::pair<unsigned, unsigned>(0,0);
             if(ts_packet_header->payload_unit_start_indicator == 0b1){
                 Log::info(__FILE__, __LINE__, "Gat a audio pes load header!");
-                pts_pair = findPtsfromPes(&buffer[cur_position], TS_PACHET_LENGTH - cur_position);
+                pts_pair = findPtsfromPes(&buffer[cur_position], TS_PACKET_LENGTH - cur_position);
             }
             
             int64_t final_pts_change = 0;
             if(pts_pair.first != 0){
                 Log::debug(__FILE__, __LINE__, "Gat a audio pts!");
                 int position = cur_position + pts_pair.first;
-                int buffer_length = TS_PACHET_LENGTH - position;
+                int buffer_length = TS_PACKET_LENGTH - position;
                 if(start_pts_ == 0){
                     start_pts_ = combinePts((char*)&buffer[position]);
                 }
@@ -552,7 +556,7 @@ ModeTsFileStatus ModTsFile::threadRunning(){
                 Log::debug(__FILE__, __LINE__, "Cur audio time: %f, pts: ", cur_time_, cur_pts_);
                 if(end_time_ > 0 && cur_time_ > end_time_){
                     Log::info(__FILE__, __LINE__, "Over time at %f, pts is %d end time is %d so stop", cur_time_, cur_pts_, end_time_);
-                    return ModeTsFileStatus::Stop;
+                    return ModTsFileStatus::Stop;
                 }
 
                 // 获取当前pts跳变情况
@@ -567,14 +571,14 @@ ModeTsFileStatus ModTsFile::threadRunning(){
             }
             if(pts_pair.second != 0){
                 int position = cur_position + pts_pair.second;
-                int buffer_length = TS_PACHET_LENGTH - position;
+                int buffer_length = TS_PACKET_LENGTH - position;
                 changePTS(&buffer[position], buffer_length, final_pts_change);
             }
 
             // 如果需要填充空包，就直接填充
             if(shouldFillWithNull(Media::audio)){
                 Log::info(__FILE__, __LINE__, "Fill with a null pack to a audio pack");
-                writeNullPack((char*)buffer, TS_PACHET_LENGTH);
+                writeNullPack((char*)buffer, TS_PACKET_LENGTH);
             }
 
             // 对时间进行更新后再决定对本包的处理
@@ -587,14 +591,14 @@ ModeTsFileStatus ModTsFile::threadRunning(){
             std::pair<unsigned, unsigned> pts_pair = std::pair<unsigned, unsigned>(0,0);
             if(ts_packet_header->payload_unit_start_indicator == 0b1){
                 Log::info(__FILE__, __LINE__, "Gat a video pes load header!");
-                pts_pair = findPtsfromPes(&buffer[cur_position], TS_PACHET_LENGTH - cur_position);
+                pts_pair = findPtsfromPes(&buffer[cur_position], TS_PACKET_LENGTH - cur_position);
             }
 
             int64_t final_pts_change = 0;
             if(pts_pair.first != 0){
                 Log::debug(__FILE__, __LINE__, "Gat a video pts!");
                 int position = cur_position + pts_pair.first;
-                int buffer_length = TS_PACHET_LENGTH - position;
+                int buffer_length = TS_PACKET_LENGTH - position;
                 if(start_pts_ == 0){
                     start_pts_ = combinePts((char*)&buffer[position]);
                 }
@@ -604,7 +608,7 @@ ModeTsFileStatus ModTsFile::threadRunning(){
                 Log::debug(__FILE__, __LINE__, "Cur video time: %f, pts: ", cur_time_, cur_pts_);
                 if(end_time_ > 0 && cur_time_ > end_time_){
                     Log::info(__FILE__, __LINE__, "Over time at %f, pts is %d end time is %d so stop", cur_time_, cur_pts_, end_time_);
-                    return ModeTsFileStatus::Stop;
+                    return ModTsFileStatus::Stop;
                 }
 
                 // 获取当前pts跳变情况
@@ -623,14 +627,14 @@ ModeTsFileStatus ModTsFile::threadRunning(){
             if(pts_pair.second != 0){
                 Log::debug(__FILE__, __LINE__, "Gat a video dts!");
                 int position = cur_position + pts_pair.second;
-                int buffer_length = TS_PACHET_LENGTH - position;
+                int buffer_length = TS_PACKET_LENGTH - position;
                 changePTS(&buffer[position], buffer_length, final_pts_change);
             }
 
             // 如果需要填充空包，就直接填充
             if(shouldFillWithNull(Media::video)){
                 Log::info(__FILE__, __LINE__, "Fill with a null pack to a video pack");
-                writeNullPack((char*)buffer, TS_PACHET_LENGTH);
+                writeNullPack((char*)buffer, TS_PACKET_LENGTH);
             }
 
             // 对时间进行更新后再决定对本包的处理
@@ -649,20 +653,20 @@ ModeTsFileStatus ModTsFile::threadRunning(){
     if(loss_repeat_ans > 0){
         Log::info(__FILE__, __LINE__, "Repeate a ts pack at time: %f, pts: %d", cur_time_, cur_pts_);
         repeated_pack_cnt++;
-        file_out_.write((const char*)buffer, TS_PACHET_LENGTH);
-        file_out_.write((const char*)buffer, TS_PACHET_LENGTH);
+        file_out_.write((const char*)buffer, TS_PACKET_LENGTH);
+        file_out_.write((const char*)buffer, TS_PACKET_LENGTH);
         write_packet_cnt +=2;
-        return ModeTsFileStatus::Running;
+        return ModTsFileStatus::Running;
     }
     else if(loss_repeat_ans < 0){
         lossed_pack_cnt++;
         Log::info(__FILE__, __LINE__, "Delete a ts pack at time: %f, pts: %d", cur_time_, cur_pts_);
-        return ModeTsFileStatus::Running;
+        return ModTsFileStatus::Running;
     }
     else{
         write_packet_cnt++;
-        file_out_.write((const char*)buffer, TS_PACHET_LENGTH);
-        return ModeTsFileStatus::Running;
+        file_out_.write((const char*)buffer, TS_PACKET_LENGTH);
+        return ModTsFileStatus::Running;
     }
 }
 
@@ -718,6 +722,7 @@ int64_t ModTsFile::getPtsChange(Media media_type,u_int64_t cur_pts){
 
 // 修改PTS，增加pts_change值
 bool ModTsFile::changePTS(u_char* buffer, int buffer_length, int64_t pts_change){
+    (void)buffer_length;  // 未使用但保留以兼容接口
     if(buffer == nullptr){
         return false;
     }
@@ -757,6 +762,7 @@ bool ModTsFile::changePTS(u_char* buffer, int buffer_length, int64_t pts_change)
 
 // 修改DTS，增加pts_change值
 bool ModTsFile::changeDTS(u_char* buffer, int buffer_length, int64_t dts_change){
+    (void)buffer_length;  // 未使用但保留以兼容接口
     if(buffer == nullptr){
         return false;
     }
@@ -822,7 +828,7 @@ bool ModTsFile::Success(){
 }
 
 std::pair<unsigned, unsigned> ModTsFile::findPtsfromPes(u_char* buffer, int buffer_length){
-    if(buffer == nullptr){
+    if(buffer == nullptr || buffer_length < 9){
         return std::make_pair(0,0);
     }
     int cur_position = 0;
@@ -830,54 +836,55 @@ std::pair<unsigned, unsigned> ModTsFile::findPtsfromPes(u_char* buffer, int buff
     PesPacketHeader pes_header;
     memcpy(&pes_header, buffer, 5);
 
-    // 当前包没有pes�?
+    // 当前包没有pes头
     if(pes_header.start_code_prefix[0] != 0x00 ||
     pes_header.start_code_prefix[1] != 0x00 ||
     pes_header.start_code_prefix[2] != 0x01){
-        return std::make_pair(0,0); 
+        return std::make_pair(0,0);
     }
     // 这几类stream_id不解析pts
     else if(pes_header.stream_id[0] == STREAM_ID_PROGRAM_STREAM_MAP ||
-            pes_header.stream_id[0] == STREAM_ID_PADDING_STREAM || 
-            pes_header.stream_id[0] == STREAM_ID_PRIVATE_STREAM_2 || 
+            pes_header.stream_id[0] == STREAM_ID_PADDING_STREAM ||
+            pes_header.stream_id[0] == STREAM_ID_PRIVATE_STREAM_2 ||
             pes_header.stream_id[0] == STREAM_ID_ECM_STREAM ||
             pes_header.stream_id[0] == STREAM_ID_EMM_STREAM ||
             pes_header.stream_id[0] == STREAM_ID_PROGRAM_STREAM_DIRECTORY ||
-            pes_header.stream_id[0] == STREAM_ID_DSMCC_STREAM || 
+            pes_header.stream_id[0] == STREAM_ID_DSMCC_STREAM ||
             pes_header.stream_id[0] == STREAM_ID_H222_E_STREAM
     ){
-        static int err_pes_type_cnt = 0;
-        Log::debug(__FILE__, __LINE__, "Err Pes type count: %d", err_pes_type_cnt++);
-        return std::make_pair(0,0); 
+        return std::make_pair(0,0);
     }
     else{
         cur_position += 6;
     }
-    
-    // 查看是否有pes包的adaption headers
-    OptionalPesHeader* optional_pes_header = OptionalPesHeader::parseOptionalPesHeader(&buffer[cur_position], buffer_length - cur_position);
-    if(optional_pes_header == nullptr){
+
+    // 直接解析 OptionalPesHeader（避免内存分配）
+    if(buffer_length - cur_position < 3){
         return std::make_pair(0,0);
     }
 
+    u_char byte0 = buffer[cur_position];
+    u_char byte1 = buffer[cur_position + 1];
+    u_char pts_dts_indicator = (byte1 >> 6) & 0x03;
+    u_char marker_bits = (byte0 >> 6) & 0x03;
 
-    // 如果开头不�?2，就不是pes adaptation header
-    if(optional_pes_header->marker_bits != 2){
+    // 如果开头不是2，就不是pes adaptation header
+    if(marker_bits != 2){
         return std::make_pair(0,0);
     }
-    // 虽然有pes adaptation header，但是pts_dts指示表示并不存在pts_dts
-    else if(optional_pes_header->pts_dts_indicator == 0b00){
+    // pts_dts指示表示并不存在pts_dts
+    if(pts_dts_indicator == 0b00){
         return std::make_pair(0,0);
     }
 
     // 有optional header与pts/dts，先移动位置
     cur_position += 3;
 
-    if(optional_pes_header->pts_dts_indicator == 0b11){
+    if(pts_dts_indicator == 0b11){
         return std::make_pair(cur_position, cur_position+5);
     }
-    // 只有dts存在
-    else if(optional_pes_header->pts_dts_indicator == 0b10){
+    // 只有PTS存在
+    else if(pts_dts_indicator == 0b10){
         return std::make_pair(cur_position, 0);
     }
     else{
@@ -907,7 +914,8 @@ std::string ModTsFile::removeSuffix(const std::string& str, const std::string& s
 }
 
 // 更换输出文件�?
-bool ModTsFile::changeOutoutFile(std::ofstream* file_out, std::string& file_name, int slice_count){
+bool ModTsFile::changeOutputFile(std::ofstream* file_out, std::string& file_name, int slice_count){
+    (void)file_out;  // 未使用但保留以兼容接口
     file_out_.close();
     std::string new_file_name = removeSuffix(file_name, ".ts") + "_" + std::to_string(slice_count) + ".ts";
     file_out_.open(new_file_name.c_str(), std::ios_base::out);
@@ -966,78 +974,37 @@ bool ModTsFile::isPmtPacket(const int pid){
     return false;
 }
 
-// 查找pid是否为音频
-bool ModTsFile::isAudioPacket(const int pid){
-    if(pat_ == nullptr){
-        return false;
-    }
-    else if(isPmtPacket(pid)){
-        return false;
-    }
-    // 查找当前解析出的所有pmt列表
-
-    bool findPid = false;
-    uint8_t type = 0;
-
+// 获取指定PID的流类型（内部辅助函数）
+uint8_t ModTsFile::getStreamTypeByPid(const int pid){
     for(auto pmt_pair : pmt_pair_list_){
         auto pmt = pmt_pair.second;
-        if(pmt == nullptr){
-            ;
-        }
-        else{
-            // 遍历所有的program
+        if(pmt != nullptr){
             for(auto program : pmt->PMT_Stream){
                 if(pid == program.elementary_PID){
-                    findPid = true;
-                    type = program.stream_type;
+                    return program.stream_type;
                 }
             }
         }
     }
-    // 如果找到pid了，储存了对应的streamtype
-    if(findPid){
-        return isAudioStream(type);
-    }
-    else{
+    return 0;  // 未找到返回0
+}
+
+// 查找pid是否为音频
+bool ModTsFile::isAudioPacket(const int pid){
+    if(pat_ == nullptr || isPmtPacket(pid)){
         return false;
     }
+    uint8_t type = getStreamTypeByPid(pid);
+    return (type != 0) && isAudioStream(type);
 }
 
 // 查找pid是否为视频
 bool ModTsFile::isVideoPacket(const int pid){
-    if(pat_ == nullptr){
+    if(pat_ == nullptr || isPmtPacket(pid)){
         return false;
     }
-    else if(isPmtPacket(pid)){
-        return false;
-    }
-    // 查找当前解析出的所有pmt列表
-
-    bool findPid = false;
-    uint8_t type = 0;
-
-    for(auto pmt_pair : pmt_pair_list_){
-        auto pmt = pmt_pair.second;
-        if(pmt == nullptr){
-            ;
-        }
-        else{
-            // 遍历所有的program
-            for(auto program : pmt->PMT_Stream){
-                if(pid == program.elementary_PID){
-                    findPid = true;
-                    type = program.stream_type;
-                }
-            }
-        }
-    }
-    // 如果找到pid了，储存了对应的streamtype
-    if(findPid){
-        return isVideoStream(type);
-    }
-    else{
-        return false;
-    }
+    uint8_t type = getStreamTypeByPid(pid);
+    return (type != 0) && isVideoStream(type);
 }
 
 // 从当前已经解析的列表中查找pid是否存在
