@@ -2,30 +2,6 @@
 #include <iostream>
 #include "common/Log.h"
 
-static void writeThisBufferIntoFile(const char* buffer, int buffer_length){
-    static bool marker = false;
-    static std::ofstream out_file;
-
-    static int cnt = 0;
-    std::cout << "Call this func for " << cnt++ << std::endl;
-
-    // 第一次开启文件
-    if(!marker){
-        std::string debug_file_name = "err_file.ts"; 
-        out_file.open(debug_file_name.c_str(), std::ios::app);
-        marker = true;
-    }
-
-    out_file.write(buffer, buffer_length);
-    return;
-}
-
-bool verifyHighFourBits(const u_char byte, const u_char mask) {
-    // 0010的二进制表示为0x2
-    u_char highFourBits = byte >> 4;
-    return (highFourBits & 0xF) == mask;
-}
-
 /*------------------------------- Base Struct -------------------------------*/
 TsPAT* TsPAT::parsePAT(u_char* buffer, int buffer_length) {
     if(buffer == nullptr){
@@ -37,12 +13,6 @@ TsPAT* TsPAT::parsePAT(u_char* buffer, int buffer_length) {
     packet->table_id                    = buffer[0];
     packet->section_syntax_indicator    = buffer[1] >> 7;
     packet->zero                        = (buffer[1] >> 6) & 0x1;
-
-    // PAT表的table id = 0
-    if(packet->table_id != 0 || packet->section_syntax_indicator != 1 || packet->zero != 0){
-        delete packet;
-        return nullptr;
-    }
 
     packet->reserved_1                  = (buffer[1] >> 4) & 0x3;
     packet->section_length              = ((buffer[1] & 0x0F) << 8) | buffer[2];
@@ -81,7 +51,7 @@ TsPAT* TsPAT::parsePAT(u_char* buffer, int buffer_length) {
 TsPMT* TsPMT::parsePMT(u_char* buffer, int buffer_length)
 {
     if(buffer == nullptr){
-        std::cout << "ERROR: Parse PMT: null buffer or out of buffer length" << std::endl;
+        Log::error(__FILE__, __LINE__, "Parse PMT: null buffer or out of buffer length");
         return nullptr;
     }
 
@@ -161,7 +131,7 @@ TsPMT* TsPMT::parsePMT(u_char* buffer, int buffer_length)
 
 TsPacketHeader* TsPacketHeader::parseTsPacketHeader(u_char* buffer, int buffer_length) {
     if(buffer == nullptr || buffer_length < 4){
-        std::cout << "ERROR: Null buffer or Invalid buffer length" << std::endl;
+        Log::error(__FILE__, __LINE__, "Null buffer or Invalid buffer length");
         return nullptr;
     }
 
@@ -198,7 +168,7 @@ void TsPacketHeader::writeTsPacketHeaderToChar(const TsPacketHeader* header, cha
 OptionalPesHeader* OptionalPesHeader::parseOptionalPesHeader(u_char* buffer, int buffer_length) {
     // 检查输入缓冲区长度是否足够
     if(buffer == nullptr ||  buffer_length < 3){
-        std::cout << "ERROR: Null buffer or Optional Pes header out of buffer length" << std::endl;
+        Log::error(__FILE__, __LINE__, "Null buffer or Optional Pes header out of buffer length");
         return nullptr;
     }
 
@@ -293,7 +263,7 @@ bool ModTsFile::Start(){
     parsing_thread_ = std::thread(&ModTsFile::doParsing, this);
 
     be_started_ = true;
-    std::cout << "Success to start a thread " << std::endl;
+    Log::info(__FILE__, __LINE__, "Success to start a thread");
     return true;
 };
 
@@ -367,8 +337,11 @@ bool ModTsFile::arrangeParamList(){
     return true;
 }
 
-// 清理list的逻辑，因为有的时候会共用指针，所以最终释放需要用这个统一释放
+// 清理list的逻辑，指针已经分散到各个列表中，只需清理各列表即可
 bool ModTsFile::clearParamList(){
+    // 注意：指针已在 arrangeParamList() 中转移到各列表
+    // 不要重复 delete task_param_->func_pattern 的元素
+
     if(cut_param_ != nullptr){
         delete cut_param_;
         cut_param_ = nullptr;
@@ -377,7 +350,6 @@ bool ModTsFile::clearParamList(){
     for(auto param : pts_pattern_list_){
         if(param != nullptr){
             delete param;
-            param = nullptr;
         }
     }
     pts_pattern_list_.clear();
@@ -385,7 +357,6 @@ bool ModTsFile::clearParamList(){
     for(auto param : loss_repeat_list_){
         if(param != nullptr){
             delete param;
-            param = nullptr;
         }
     }
     loss_repeat_list_.clear();
@@ -393,18 +364,16 @@ bool ModTsFile::clearParamList(){
     for(auto param : ts_err_list_){
         if(param != nullptr){
             delete param;
-            param = nullptr;
         }
     }
     ts_err_list_.clear();
 
-    for(auto param : task_param_->func_pattern){
-        if(param != nullptr){
-            delete param;
-            param = nullptr;
-        }
+    // 清空 task_param 的指针列表（不 delete，因为指针已转移）
+    if(task_param_ != nullptr){
+        task_param_->func_pattern.clear();
     }
-    ts_err_list_.clear();
+
+    return true;
 }
 
 // 解析线程
@@ -426,10 +395,10 @@ void ModTsFile::doParsing(){
             statu_ = threadRunning();
             break;
         case ModeTsFileStatus::Err:
-            statu_ == ModeTsFileStatus::Stop;
+            statu_ = ModeTsFileStatus::Stop;
             break;
         default:
-            statu_ == ModeTsFileStatus::Stop;
+            statu_ = ModeTsFileStatus::Stop;
             break;
         }
     };
@@ -683,6 +652,7 @@ ModeTsFileStatus ModTsFile::threadRunning(){
         file_out_.write((const char*)buffer, TS_PACHET_LENGTH);
         file_out_.write((const char*)buffer, TS_PACHET_LENGTH);
         write_packet_cnt +=2;
+        return ModeTsFileStatus::Running;
     }
     else if(loss_repeat_ans < 0){
         lossed_pack_cnt++;
@@ -694,7 +664,7 @@ ModeTsFileStatus ModTsFile::threadRunning(){
         file_out_.write((const char*)buffer, TS_PACHET_LENGTH);
         return ModeTsFileStatus::Running;
     }
-};
+}
 
 // 获得叠加的跳变
 int64_t ModTsFile::getPtsChange(Media media_type,u_int64_t cur_pts){
@@ -717,29 +687,27 @@ int64_t ModTsFile::getPtsChange(Media media_type,u_int64_t cur_pts){
         else if(cur_time_ >= pattern->start_sec && cur_time_ <= pattern->end_sec){
             int64_t base_pts = pattern->pts_base; 
             PtsFunc func = pattern->pts_func;
-            int i = 0;
             switch (func)
             {
             case PtsFunc::add:
-                pts_change += base_pts;
+                pts_change += static_cast<int64_t>(base_pts);
                 break;
             case PtsFunc::minus:
-                pts_change -= base_pts;
+                pts_change -= static_cast<int64_t>(base_pts);
                 break;
             case PtsFunc::sin:
-                pts_change += sin(cur_time_) * base_pts;
+                pts_change += static_cast<int64_t>(sin(cur_time_) * base_pts);
                 break;
             case PtsFunc::pulse:
-                i = (sin(cur_time_) >= 0) ? 1 : -1;
-                pts_change += i * base_pts;
+                pts_change += static_cast<int64_t>((sin(cur_time_) >= 0 ? 1 : -1) * base_pts);
                 break;
             case PtsFunc::mult:
-                // 这里混用 int 和 uint 其实有一些风险，但是pts应该不会超过这个值
-                pts_change += (pattern->pts_base * static_cast<int64_t>(cur_pts)) - static_cast<int64_t>(cur_pts);
-                std::cout << "[DEBUG] get a mult func at " << cur_time_ << ", pts change is " << pts_change <<  "and cur pts is " << cur_pts << std::endl;
+                // 时间速率调整: new_pts = cur_pts * pts_base, 所以 change = new_pts - cur_pts
+                pts_change += static_cast<int64_t>(pattern->pts_base * static_cast<double>(cur_pts)) - static_cast<int64_t>(cur_pts);
+                Log::debug(__FILE__, __LINE__, "mult func at %f sec, pts_change: %lld, cur_pts: %llu",
+                           cur_time_, pts_change, cur_pts);
                 break;
             default:
-                std::cout << "[DEBUG] No pattern compare" << std::endl;
                 break;
             }
         }
@@ -767,8 +735,7 @@ bool ModTsFile::changePTS(u_char* buffer, int buffer_length, int64_t pts_change)
 
 
     uint64_t pts_num = combinePts((char*)buffer);
-    std::cout << "u_pts_change is " << u_pts_change<< std::endl;
-    std::cout << "pts_num is " << pts_num << std::endl;
+    Log::debug(__FILE__, __LINE__, "u_pts_change: %llu, pts_num: %llu", u_pts_change, pts_num);
 
     if(positive){
         pts_num += u_pts_change;
@@ -783,7 +750,7 @@ bool ModTsFile::changePTS(u_char* buffer, int buffer_length, int64_t pts_change)
         pts_num -= u_pts_change;
     }
 
-    std::cout << "Final pts_num is " << pts_num << std::endl;
+    Log::debug(__FILE__, __LINE__, "Final pts_num: %llu", pts_num);
     rewritePts((char*)buffer, pts_num);
     return true;
 }
@@ -793,23 +760,34 @@ bool ModTsFile::changeDTS(u_char* buffer, int buffer_length, int64_t dts_change)
     if(buffer == nullptr){
         return false;
     }
-    uint64_t u_pts_change = dts_change;
-    bool add = true;
+    bool positive = true;
     if(dts_change < 0){
-        add = false;
+        positive = false;
     }
-
-    uint64_t pts_num = combinePts((char*)buffer);
-    if(add){
-        pts_num += u_pts_change;
+    uint64_t u_dts_change = 0;
+    if(positive){
+        u_dts_change = dts_change;
     }
     else{
-        if(u_pts_change > pts_num){
-            pts_num += 8589934591L;
-            pts_num -= u_pts_change;
+        u_dts_change = -dts_change;
+    }
+
+    uint64_t dts_num = combinePts((char*)buffer);
+
+    if(positive){
+        dts_num += u_dts_change;
+        if(dts_num > 8589934591L){
+            dts_num -= 8589934591L;
         }
     }
-    rewritePts((char*)buffer, pts_num);
+    else{
+        if(u_dts_change > dts_num){
+            dts_num += 8589934591L;
+        }
+        dts_num -= u_dts_change;
+    }
+
+    rewritePts((char*)buffer, dts_num);  // PTS和DTS格式相同，可以用同一函数覆写
     return true;
 }
 
@@ -837,30 +815,6 @@ void ModTsFile::rewritePts(char* payload, u_int64_t pts){
     return ;
 }
 
-// 覆写dts
-/*
-void ModTsFile::rewriteDts(char* payload, u_int64_t dts){
-    // 清空payload
-    for(int i = 0; i < 5; i++)
-        payload[i] = 0;
-    // 传入对应的内�?
-    payload[0] = (char)((dts >> 29) & 0x0E);
-    payload[1] = (char)((dts >> 22) & 0xFF);
-    payload[2] = (char)((dts >> 14) & 0xFE);
-    payload[3] = (char)((dts >> 7) & 0xFF);
-    payload[4] = (char)((dts << 1) & 0xFE);
-
-    // 添加标记�?
-    payload[0] |= 0b00010001;
-    payload[2] |= 0b00000001;
-    payload[4] |= 0b00000001;
-
-
-    
-    // 返回
-    return ;
-}
-*/
 
 // 查看是否成功
 bool ModTsFile::Success(){
@@ -893,7 +847,7 @@ std::pair<unsigned, unsigned> ModTsFile::findPtsfromPes(u_char* buffer, int buff
             pes_header.stream_id[0] == STREAM_ID_H222_E_STREAM
     ){
         static int err_pes_type_cnt = 0;
-        std::cout << "[DEBUG] Err Pes type: " << err_pes_type_cnt++ << std::endl;
+        Log::debug(__FILE__, __LINE__, "Err Pes type count: %d", err_pes_type_cnt++);
         return std::make_pair(0,0); 
     }
     else{
@@ -1152,7 +1106,7 @@ int ModTsFile::shouldDeleteThisPack(Media media_type, int pid){
     for(auto iter = loss_repeat_list_.begin(); iter != loss_repeat_list_.end() ; iter++){
         FuncPattern* pattern = *iter;
         if(cur_time_ >  pattern->end_sec){
-            std::cout << "At sec" << cur_time_ <<  ", pattern overtime, so do delete" << std::endl;
+            Log::debug(__FILE__, __LINE__, "At sec %f, pattern overtime, so delete", cur_time_);
             delete pattern;
             pattern = nullptr;
             loss_repeat_list_.erase(iter);
@@ -1166,11 +1120,11 @@ int ModTsFile::shouldDeleteThisPack(Media media_type, int pid){
         else if(cur_time_ >= pattern->start_sec && cur_time_ <=  pattern->end_sec){
             // random delete 
             if(pattern->pts_func == PtsFunc::loss){
-                std::cout << "[DEBUG] get a loss func" << std::endl;
+                Log::debug(__FILE__, __LINE__, "get a loss func");
                 int rate = static_cast<int>(pattern->pts_base) % 100;
                 int rand = std::rand() % 100;
                 if(rand <= rate || pattern->pts_base >= 100){
-                    std::cout << "[DEBUG] delete a packet at pid" << pid << std::endl;
+                    Log::debug(__FILE__, __LINE__, "delete a packet at pid %d", pid);
                     ans = -1;
                 }
                 else{
@@ -1178,11 +1132,11 @@ int ModTsFile::shouldDeleteThisPack(Media media_type, int pid){
                 }
             }
             else if(pattern->pts_func == PtsFunc::repeate){
-                std::cout << "[DEBUG] get a repeate func" << std::endl;
+                Log::debug(__FILE__, __LINE__, "get a repeate func");
                 int rate = static_cast<int>(pattern->pts_base) % 100;
                 int rand = std::rand() % 100;
                 if(rand <= rate || pattern->pts_base >= 100){
-                    std::cout << "[DEBUG] repeate a packet at pid" << pid << std::endl;
+                    Log::debug(__FILE__, __LINE__, "repeate a packet at pid %d", pid);
                     ans = 1;
                 }
                 else{
@@ -1190,9 +1144,9 @@ int ModTsFile::shouldDeleteThisPack(Media media_type, int pid){
                 }
             }
             else if(pattern->pts_func == PtsFunc::pat_delete){
-                std::cout << "[DEBUG] get a pat_delete func" << std::endl;
+                Log::debug(__FILE__, __LINE__, "get a pat_delete func");
                 if(pid == 0){
-                    std::cout << "[DEBUG] delete a PAT at pid" << pid << std::endl;
+                    Log::debug(__FILE__, __LINE__, "delete a PAT at pid %d", pid);
                     ans = -1;
                 }
                 else{
@@ -1200,9 +1154,9 @@ int ModTsFile::shouldDeleteThisPack(Media media_type, int pid){
                 }
             }
             else if(pattern->pts_func == PtsFunc::pmt_delete){
-                std::cout << "[DEBUG] get a pat_delete func" << std::endl;
+                Log::debug(__FILE__, __LINE__, "get a pmt_delete func");
                 if(isPmtPacket(pid)){
-                    std::cout << "[DEBUG] delete a PMT at pid" << pid << std::endl;
+                    Log::debug(__FILE__, __LINE__, "delete a PMT at pid %d", pid);
                     ans = -1;
                 }
                 else{
@@ -1210,7 +1164,7 @@ int ModTsFile::shouldDeleteThisPack(Media media_type, int pid){
                 }
             }
             else{
-                std::cout << "get a err func" << std::endl;
+                Log::debug(__FILE__, __LINE__, "get an unknown func");
             }
         }
     }
@@ -1228,7 +1182,7 @@ bool ModTsFile::shouldFillWithNull(Media media_type){
         FuncPattern* pattern = *iter;
         // 删除超时部分
         if(cur_time_ >  pattern->end_sec){
-            std::cout << "At sec" << cur_time_ <<  ", pattern overtime, so do delete" << std::endl;
+            Log::debug(__FILE__, __LINE__, "At sec %f, pattern overtime, so delete", cur_time_);
             delete pattern;
             pattern = nullptr;
             ts_err_list_.erase(iter);
@@ -1252,7 +1206,7 @@ bool ModTsFile::shouldFillWithNull(Media media_type){
 // 从头开始写空包
 void ModTsFile::writeNullPack(char* payload, int buffer_length){
     static long long null_pack_cnt = 0;
-    std::cout << "[DEBUG] Write " << null_pack_cnt++ << " nullpack" << std::endl;
+    Log::debug(__FILE__, __LINE__, "Write %lld nullpack", null_pack_cnt++);
     if(payload == nullptr || buffer_length < 188){
         return;
     }

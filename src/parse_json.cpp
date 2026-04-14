@@ -32,11 +32,11 @@ bool FuncPattern::parseJson(const rapidjson::Value& pattern) {
     pts_func = StrToPtsFunc(pattern["func"].GetString());
 
     if (!pattern.HasMember("pts_base")) {
-        Log::error( __FILE__, __LINE__, "Missing 'func' value.");
+        Log::error( __FILE__, __LINE__, "Missing 'pts_base' value.");
     }
     else if(pattern["pts_base"].IsInt64()){
         pts_base = pattern["pts_base"].GetInt64();
-        std::cout << "pts_base is " << pts_base << std::endl;
+        Log::debug(__FILE__, __LINE__, "pts_base is %f", pts_base);
     }
     else if(pattern["pts_base"].IsFloat()){
         pts_base = pattern["pts_base"].GetFloat();
@@ -142,10 +142,10 @@ std::string PtsFuncToStr(PtsFunc pts_func){
         ans = "null";
         break;
     case PtsFunc::pat_delete:
-        ans = "null";
+        ans = "pat_delete";
         break;
     case PtsFunc::pmt_delete:
-        ans = "null";
+        ans = "pmt_delete";
         break;
     default:
         ans = "others";

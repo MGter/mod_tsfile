@@ -208,10 +208,8 @@ private:
     bool changeDTS(u_char* buffer, int buffer_length, int64_t pts_change);
     // 从buffer生成u_int64_t的pts`
     u_int64_t combinePts(char buffer[5]);
-    // 从u_int64_t的pts写入buffer[5]
+    // 从u_int64_t的pts写入buffer[5] (PTS和DTS格式相同，可用同一函数)
     void rewritePts(char* payload, u_int64_t pts);
-    // 从u_int64_t的dts写入buffer[5]
-    void rewriteDts(char* payload, u_int64_t pts);
     void writeNullPack(char* payload, int buffer_length);
 
     /*----------------------------辅助------------------------------*/

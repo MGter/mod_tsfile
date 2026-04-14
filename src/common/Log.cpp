@@ -107,7 +107,9 @@ bool Log::createLogFile() {
     m_logFile.open(logFilename, std::ios_base::app);
     if(!m_logFile.is_open()){
         std::cout <<"[" << __FILE__ << "][" << __LINE__ << "]"  "Failed to open the logfile: " << logFilename << std::endl;
+        return false;
     }
+    return true;
 }
 
 void Log::closeLogFile() {

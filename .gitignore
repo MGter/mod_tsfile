@@ -12,3 +12,13 @@
 *.mp3
 *.mp4
 
+# 编译产物
+mod_tsfile
+
+# 日志目录
+log/
+
+# IDE 配置
+.vscode/
+.idea/
+

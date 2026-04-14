@@ -40,14 +40,14 @@ int main(int argc, char* argv[]){
     document.Parse(jsonStr.c_str());
 
 
-    if(document["task_array"].Empty()){
-        Log::error(__FILE__, __LINE__, "task_array is not exist");
+    if(!document.HasMember("task_array") || !document["task_array"].IsArray()){
+        Log::error(__FILE__, __LINE__, "task_array is not exist or not a array");
     }
 
-    if(!document["task_array"].IsArray()){
-        Log::error(__FILE__, __LINE__, "task_array is not a array");
+    if(document["task_array"].Empty()){
+        Log::error(__FILE__, __LINE__, "task_array is empty");
     }
-    
+
     rapidjson::Value& task_array = document["task_array"];
     
 
@@ -103,7 +103,6 @@ void printHelp(){
 }
 
 void releaseTasks(std::vector<TaskParam*>& task_list){
-    return;
     for(auto task : task_list){
         if(task != nullptr)
             delete task;
