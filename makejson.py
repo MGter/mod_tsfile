@@ -92,33 +92,54 @@ class JsonMaker:
 
 
 def main():
-    parser = argparse.ArgumentParser(description='生成 H.264 或 H.265 测试 JSON 配置文件')
+    parser = argparse.ArgumentParser(
+        description='生成 TS 文件测试 JSON 配置文件',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog='''
+示例:
+  python3 makejson.py -c 264 -i input.ts -o test.json
+  python3 makejson.py -c 265 -i video.ts --skip-ffmpeg
+  python3 makejson.py -h
+
+参数说明:
+  -c/--codec   : 视频编码格式 (264=H.264, 265=H.265)
+  -i/--input   : 输入 TS 文件 (必需)
+  -o/--output  : 输出 JSON 文件名
+  --skip-ffmpeg: 仅生成 JSON，不执行 ffmpeg
+''')
     parser.add_argument('-c', '--codec', type=str, choices=['264', '265'], default='264',
-                        help='选择编码格式: 264 (H.264/AVC) 或 265 (H.265/HEVC)，默认为 264')
-    parser.add_argument('-o', '--output', type=str, default=None,
-                        help='输出 JSON 文件名，默认为 output_264.json 或 output_265.json')
+                        help='编码格式: 264 (H.264) 或 265 (H.265)')
     parser.add_argument('-i', '--input', type=str, default=None,
-                        help='输入 TS 文件名，默认根据编码格式自动选择')
+                        help='输入 TS 文件名 (必需)')
+    parser.add_argument('-o', '--output', type=str, default=None,
+                        help='输出 JSON 文件名')
     parser.add_argument('--skip-ffmpeg', action='store_true',
-                        help='跳过 ffmpeg 命令执行，仅生成 JSON')
+                        help='跳过 ffmpeg 命令执行')
+
+    # 如果没有提供输入文件，显示帮助
+    if len(os.sys.argv) == 1 or '-i' not in os.sys.argv and '--input' not in os.sys.argv:
+        parser.print_help()
+        return
+
     args = parser.parse_args()
+
+    if args.input is None:
+        parser.print_help()
+        return
 
     # 根据编码格式设置参数
     if args.codec == '264':
-        default_input = "CBR_5M_H264_AAC_HD_25f_420.ts"
         video_encoder = "libx264"
         streamid_0 = "0x102"
         streamid_1 = "0x103"
-        null_pts_list = [5, 10, 20]  # H.264 的 null pts_base_list
+        null_pts_list = [5, 10, 20]
     else:  # 265
-        default_input = "CBR_5M_H265_HEVC_AAC_LC_HD_25f_420.ts"
         video_encoder = "libx265"
         streamid_0 = "0x100"
         streamid_1 = "0x101"
-        null_pts_list = [5]  # H.265 的 null pts_base_list (可根据需要调整)
+        null_pts_list = [5]
 
-    # 应用参数
-    input_file = args.input if args.input else default_input
+    input_file = args.input
     output_json_name = args.output if args.output else f"output_{args.codec}.json"
 
     print(f"编码格式: H.{args.codec}")

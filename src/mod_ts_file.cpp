@@ -4,45 +4,67 @@
 
 /*------------------------------- Base Struct -------------------------------*/
 TsPAT* TsPAT::parsePAT(u_char* buffer, int buffer_length) {
-    (void)buffer_length;  // 未使用但保留以兼容接口
-    if(buffer == nullptr){
+    if(buffer == nullptr || buffer_length < 8){
         return nullptr;
     }
 
     TsPAT* packet = new TsPAT();
-    
+
     packet->table_id                    = buffer[0];
     packet->section_syntax_indicator    = buffer[1] >> 7;
     packet->zero                        = (buffer[1] >> 6) & 0x1;
 
+    // PAT表的table_id必须为0，section_syntax_indicator必须为1，zero必须为0
+    if(packet->table_id != 0 || packet->section_syntax_indicator != 1 || packet->zero != 0){
+        delete packet;
+        return nullptr;
+    }
+
     packet->reserved_1                  = (buffer[1] >> 4) & 0x3;
     packet->section_length              = ((buffer[1] & 0x0F) << 8) | buffer[2];
+
+    // 缓冲区长度检查：section_length + 3（table_id等3字节）
+    int total_len = 3 + packet->section_length;
+    if(buffer_length < total_len || packet->section_length < 9){
+        delete packet;
+        return nullptr;
+    }
+
     packet->transport_stream_id         = (buffer[3] << 8) | buffer[4];
     packet->reserved_2                  = buffer[5] >> 6;
     packet->version_number              = (buffer[5] >> 1) & 0x1F;
-    packet->current_next_indicator      = (buffer[5] << 7) >> 7;
+    packet->current_next_indicator      = buffer[5] & 0x01;
     packet->section_number              = buffer[6];
     packet->last_section_number         = buffer[7];
-    
-    int len = 3 + packet->section_length;
-    packet->CRC_32 = (buffer[len - 4] & 0xFF) << 24 |
-                     (buffer[len - 3] & 0xFF) << 16 |
-                     (buffer[len - 2] & 0xFF) << 8 |
-                     (buffer[len - 1] & 0xFF);
-    
-    int n = 0;
-    for (n = 0; n < packet->section_length - 12; n += 4) {
-        unsigned program_num = (buffer[8 + n] << 8) | buffer[9 + n];
-        packet->reserved_3 = buffer[10 + n] >> 5;
-        
-        packet->network_PID = 0x00;
+
+    // CRC在section末尾4字节
+    packet->CRC_32 = (buffer[total_len - 4] & 0xFF) << 24 |
+                     (buffer[total_len - 3] & 0xFF) << 16 |
+                     (buffer[total_len - 2] & 0xFF) << 8 |
+                     (buffer[total_len - 1] & 0xFF);
+
+    // program info从buffer[8]开始，每个program占4字节
+    // section_length - 9（除去头8字节和CRC4字节前1字节）= program信息长度
+    // 实际：section_length - 4(CRC) - 5(transport_stream_id等) = program长度
+    int program_loop_len = packet->section_length - 9;  // 4 + 5 = 9
+
+    for (int n = 0; n + 4 <= program_loop_len; n += 4) {
+        // 防止越界访问
+        if(8 + n + 3 >= buffer_length){
+            break;
+        }
+
+        unsigned program_num = (buffer[8 + n] << 8) | buffer[8 + n + 1];
+
         if (program_num == 0x00) {
-            packet->network_PID = ((buffer[10 + n] & 0x1F) << 8) | buffer[11 + n];
+            // Network Information Table
+            packet->reserved_3 = buffer[8 + n + 2] >> 5;
+            packet->network_PID = ((buffer[8 + n + 2] & 0x1F) << 8) | buffer[8 + n + 3];
         } else {
             Program PAT_program;
             PAT_program.program_number = program_num;
-            PAT_program.reserved = buffer[10 + n] >> 5;
-            PAT_program.network_program_map_PID = ((buffer[10 + n] & 0x1F) << 8) | buffer[11 + n];
+            PAT_program.reserved = buffer[8 + n + 2] >> 5;
+            PAT_program.network_program_map_PID = ((buffer[8 + n + 2] & 0x1F) << 8) | buffer[8 + n + 3];
             packet->program.push_back(PAT_program);
         }
     }
@@ -51,27 +73,35 @@ TsPAT* TsPAT::parsePAT(u_char* buffer, int buffer_length) {
 
 TsPMT* TsPMT::parsePMT(u_char* buffer, int buffer_length)
 {
-    (void)buffer_length;  // 未使用但保留以兼容接口
-    if(buffer == nullptr){
-        Log::error(__FILE__, __LINE__, "Parse PMT: null buffer or out of buffer length");
+    if(buffer == nullptr || buffer_length < 12){
         return nullptr;
     }
 
     TsPMT* packet = new TsPMT;
 
     packet->table_id = buffer[0];
+    // PMT的table_id必须为0x02
     if(packet->table_id != 0x02){
         delete packet;
         return nullptr;
     }
+
     packet->section_syntax_indicator = buffer[1] >> 7;
     packet->zero = (buffer[1] >> 6) & 0x01;
     packet->reserved_1 = (buffer[1] >> 4) & 0x03;
     packet->section_length = ((buffer[1] & 0x0F) << 8) | buffer[2];
+
+    // 缓冲区长度检查
+    int total_len = packet->section_length + 3;
+    if(buffer_length < total_len || packet->section_length < 9){
+        delete packet;
+        return nullptr;
+    }
+
     packet->program_number = (buffer[3] << 8) | buffer[4];
     packet->reserved_2 = buffer[5] >> 6;
     packet->version_number = (buffer[5] >> 1) & 0x1F;
-    packet->current_next_indicator = (buffer[5] << 7) >> 7;
+    packet->current_next_indicator = buffer[5] & 0x01;
     packet->section_number = buffer[6];
     packet->last_section_number = buffer[7];
     packet->reserved_3 = buffer[8] >> 5;
@@ -80,21 +110,29 @@ TsPMT* TsPMT::parsePMT(u_char* buffer, int buffer_length)
     packet->reserved_4 = buffer[10] >> 4;
     packet->program_info_length = ((buffer[10] & 0x0F) << 8) | buffer[11];
 
-    // Get CRC_32
-    int len = packet->section_length + 3;
-    packet->CRC_32 = (buffer[len - 4] << 24) |
-                     (buffer[len - 3] << 16) |
-                     (buffer[len - 2] << 8) |
-                     buffer[len - 1];
+    // 检查program_info_length是否会导致越界
+    if(12 + packet->program_info_length > buffer_length){
+        delete packet;
+        return nullptr;
+    }
+
+    // CRC在section末尾
+    packet->CRC_32 = (buffer[total_len - 4] << 24) |
+                     (buffer[total_len - 3] << 16) |
+                     (buffer[total_len - 2] << 8) |
+                     buffer[total_len - 1];
 
     int pos = 12;
 
-    // Program info descriptor
-    if (packet->program_info_length != 0)
+    // 跳过program info descriptor
+    if (packet->program_info_length != 0){
         pos += packet->program_info_length;
+    }
 
-    // Get stream type and PID
-    while (pos <= packet->section_length + 2 - 4)
+    // 解析stream info，CRC占4字节在末尾
+    int stream_info_end = total_len - 4;
+
+    while (pos + 5 <= stream_info_end && pos + 5 <= buffer_length)
     {
         TsPmtStream pmt_stream;
         pmt_stream.stream_type = buffer[pos];
@@ -103,27 +141,24 @@ TsPMT* TsPMT::parsePMT(u_char* buffer, int buffer_length)
         packet->reserved_6 = buffer[pos + 3] >> 4;
         pmt_stream.ES_info_length = ((buffer[pos + 3] & 0x0F) << 8) | buffer[pos + 4];
 
+        // 检查ES_info_length是否会导致越界
+        if(pos + 5 + pmt_stream.ES_info_length > buffer_length){
+            break;
+        }
+
         pmt_stream.descriptor = 0x00;
-        if (pmt_stream.ES_info_length != 0)
+        if (pmt_stream.ES_info_length != 0 && pos + 5 <= buffer_length)
         {
             pmt_stream.descriptor = buffer[pos + 5];
-
-            for (int len = 2; len <= pmt_stream.ES_info_length; len++)
+            for (int i = 2; i <= pmt_stream.ES_info_length && pos + 4 + i < buffer_length; i++)
             {
-                pmt_stream.descriptor = (pmt_stream.descriptor << 8) | buffer[pos + 4 + len];
+                pmt_stream.descriptor = (pmt_stream.descriptor << 8) | buffer[pos + 4 + i];
             }
-            pos += pmt_stream.ES_info_length;
         }
-        pos += 5;
+
+        pos += 5 + pmt_stream.ES_info_length;
         packet->PMT_Stream.push_back(pmt_stream);
     }
-
-    /*
-    std::cout << "Get a pmt, which has " << packet->PMT_Stream.size() << " stream" << std::endl;
-    for(auto stream : packet->PMT_Stream){
-        std::cout << "stream " << stream.elementary_PID << std::endl;
-    }
-    */
 
     return packet;
 }
@@ -443,6 +478,12 @@ ModTsFileStatus ModTsFile::threadRunning(){
     file_in_.read((char*)buffer, TS_PACKET_LENGTH);
     get_packet_cnt++;   // 计算当前读入的ts_packet数量
 
+    // 检查读取是否成功
+    if(file_in_.gcount() != TS_PACKET_LENGTH){
+        Log::info(__FILE__, __LINE__, "Incomplete packet read, reached end of file");
+        return ModTsFileStatus::Stop;
+    }
+
     // 解析ts头（使用栈上对象避免内存泄漏）
     TsPacketHeader ts_header;
     u_char* buf_ptr = buffer;
@@ -455,20 +496,52 @@ ModTsFileStatus ModTsFile::threadRunning(){
     ts_header.adaption_field_control = (buf_ptr[3] >> 4) & 0x03;
     ts_header.continuity_counter = buf_ptr[3] & 0x0F;
 
+    // 验证同步字节（必须是0x47）
+    if(ts_header.sync_byte != 0x47){
+        Log::error(__FILE__, __LINE__, "Invalid sync byte: 0x%02X, expected 0x47", ts_header.sync_byte);
+        unknown_packet_cnt++;
+        file_out_.write((const char*)buffer, TS_PACKET_LENGTH);
+        write_packet_cnt++;
+        return ModTsFileStatus::Running;  // 继续处理，可能是损坏的包
+    }
+
+    // 检查传输错误指示器
+    if(ts_header.transport_error_indicator == 1){
+        Log::debug(__FILE__, __LINE__, "Transport error indicator set, packet may be corrupted");
+    }
+
     TsPacketHeader* ts_packet_header = &ts_header;
     cur_position += 4;
 
-    // 跳过自适应区
+    // 跳过自适应区（需要检查cur_position是否越界）
     if(ts_packet_header->adaption_field_control == 0x2 || ts_packet_header->adaption_field_control == 0x3){
-        cur_position += (unsigned)buffer[cur_position];
+        int adaptation_field_length = (int)buffer[cur_position];
+        // 自适应区长度不应该超过包剩余空间
+        if(cur_position + 1 + adaptation_field_length > TS_PACKET_LENGTH){
+            Log::error(__FILE__, __LINE__, "Invalid adaptation field length: %d", adaptation_field_length);
+            unknown_packet_cnt++;
+            file_out_.write((const char*)buffer, TS_PACKET_LENGTH);
+            write_packet_cnt++;
+            return ModTsFileStatus::Running;
+        }
+        cur_position += adaptation_field_length;
         cur_position ++;
     }
     // 有负载
     else if(ts_packet_header->adaption_field_control == 0b01){
         cur_position += 0;
     }
-    // 无负载
+    // 无负载（adaptation_field_control == 0x00）
     else{
+        unknown_packet_cnt++;
+        file_out_.write((const char*)buffer, TS_PACKET_LENGTH);
+        write_packet_cnt++;
+        return ModTsFileStatus::Running;
+    }
+
+    // 检查负载位置是否有效
+    if(cur_position >= TS_PACKET_LENGTH){
+        Log::error(__FILE__, __LINE__, "Payload start position out of bounds: %d", cur_position);
         unknown_packet_cnt++;
         file_out_.write((const char*)buffer, TS_PACKET_LENGTH);
         write_packet_cnt++;
@@ -653,8 +726,20 @@ ModTsFileStatus ModTsFile::threadRunning(){
     if(loss_repeat_ans > 0){
         Log::info(__FILE__, __LINE__, "Repeate a ts pack at time: %f, pts: %d", cur_time_, cur_pts_);
         repeated_pack_cnt++;
+
+        // 写入原始包
         file_out_.write((const char*)buffer, TS_PACKET_LENGTH);
-        file_out_.write((const char*)buffer, TS_PACKET_LENGTH);
+
+        // 创建重复包，并更新连续计数器（+1）
+        u_char repeat_buffer[TS_PACKET_LENGTH];
+        memcpy(repeat_buffer, buffer, TS_PACKET_LENGTH);
+
+        // 更新连续计数器（4位，范围0-15）
+        u_char cc = (buffer[3] & 0x0F);
+        cc = (cc + 1) & 0x0F;  // 循环计数
+        repeat_buffer[3] = (repeat_buffer[3] & 0xF0) | cc;
+
+        file_out_.write((const char*)repeat_buffer, TS_PACKET_LENGTH);
         write_packet_cnt +=2;
         return ModTsFileStatus::Running;
     }
@@ -1170,25 +1255,21 @@ bool ModTsFile::shouldFillWithNull(Media media_type){
     return false;
 }
 
-// 从头开始写空包
+// 从头开始写空包（标准空包PID为0x1FFF）
 void ModTsFile::writeNullPack(char* payload, int buffer_length){
     static long long null_pack_cnt = 0;
     Log::debug(__FILE__, __LINE__, "Write %lld nullpack", null_pack_cnt++);
-    if(payload == nullptr || buffer_length < 188){
+    if(payload == nullptr || buffer_length < TS_PACKET_LENGTH){
         return;
     }
-    // 解析头部，重新写入头部
-    TsPacketHeader header;
-    header.parseTsPacketHeader((u_char*)payload, buffer_length);
-    header.sync_byte = 0x47;
-    header.transport_error_indicator = 0;
-    header.payload_unit_start_indicator = 0;
-    header.transport_priority = 0;
-    header.transport_scrambling_control = 0;
-    header.adaption_field_control = 0x01;
-    TsPacketHeader::writeTsPacketHeaderToChar(&header, payload);
 
-    // 填充剩余的空包
+    // 写入标准空包头部（PID=0x1FFF）
+    payload[0] = 0x47;  // sync_byte
+    payload[1] = 0x1F;  // PID高5位（0x1FFF的高5位是0x1F）
+    payload[2] = 0xFF;  // PID低8位
+    payload[3] = 0x10;  // adaptation_field_control=0x01（只有payload），continuity_counter=0
+
+    // 填充剩余内容为0
     memset((void*)(payload + 4), 0, buffer_length - 4);
 }
 

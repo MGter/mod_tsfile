@@ -105,8 +105,40 @@ int main(int argc, char* argv[]){
 }
 
 void printHelp(){
-    std::cout << "Please input the conf file:" << std::endl;
-    std::cout << "\t./mod_ts_file.exe \tconf.json" << std::endl;
+    std::cout << std::endl;
+    std::cout << "========================================" << std::endl;
+    std::cout << "    TS File Modification Tool" << std::endl;
+    std::cout << "========================================" << std::endl;
+    std::cout << std::endl;
+
+    std::cout << "USAGE:" << std::endl;
+    std::cout << "    ./mod_tsfile <config.json>" << std::endl;
+    std::cout << std::endl;
+
+    std::cout << "GENERATE CONFIG:" << std::endl;
+    std::cout << "    python3 makejson.py -c 264 -i input.ts" << std::endl;
+    std::cout << "    python3 makejson.py -c 265 -i input.ts" << std::endl;
+    std::cout << std::endl;
+
+    std::cout << "BUILD:" << std::endl;
+    std::cout << "    make           # Compile" << std::endl;
+    std::cout << "    make clean     # Clean" << std::endl;
+    std::cout << std::endl;
+
+    std::cout << "OPERATIONS:" << std::endl;
+    std::cout << "    add/minus  - Add/subtract PTS offset" << std::endl;
+    std::cout << "    sin/pulse  - Sinusoidal variation" << std::endl;
+    std::cout << "    mult       - Multiply PTS factor" << std::endl;
+    std::cout << "    cut        - Time-based cutting" << std::endl;
+    std::cout << "    loss       - Random packet loss (%)" << std::endl;
+    std::cout << "    repeate   - Packet duplication" << std::endl;
+    std::cout << "    null       - Fill null packets" << std::endl;
+    std::cout << std::endl;
+
+    std::cout << "NOTES:" << std::endl;
+    std::cout << "    pts_base = seconds * 90000 (90kHz)" << std::endl;
+    std::cout << "    2s offset = 180000" << std::endl;
+    std::cout << std::endl;
 }
 
 void releaseTasks(std::vector<TaskParam*>& task_list){
