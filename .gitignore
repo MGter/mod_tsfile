@@ -22,3 +22,8 @@ log/
 .vscode/
 .idea/
 
+# 临时测试文件
+test.json
+input.srt
+*.srt
+
