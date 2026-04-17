@@ -13,6 +13,7 @@
 #include <ctime>
 #include <cstdlib>
 #include <algorithm>
+#include <memory>
 #include "parse_json.h"
 
 #define STREAMTYPE_11172_VIDEO 0x01
@@ -61,31 +62,31 @@ typedef struct TsPacketHeader
 {
     unsigned sync_byte                      : 8; //同步字节, 固定0x47,表示后面的是一个TS分组
     unsigned transport_error_indicator      : 1; //传输误码指示
-    unsigned payload_unit_start_indicator   : 1; //有效荷载单元起始指示 
+    unsigned payload_unit_start_indicator   : 1; //有效荷载单元起始指示
     unsigned transport_priority             : 1; //传输优先, 1表示高优先级,传输机制可能用到，解码用不着
     unsigned pid                            : 13; //PID, PAT_pid = 0
-    unsigned transport_scrambling_control   : 2; //传输加扰控制 
+    unsigned transport_scrambling_control   : 2; //传输加扰控制
     unsigned adaption_field_control         : 2; //自适应控制: 01仅含有效负载, 10仅含调整字段, 11含有调整字段和有效负载。00解码器不进行处理
     unsigned continuity_counter             : 4; //连续计数，4 bits，range:0-15
 public:
-    static TsPacketHeader* parseTsPacketHeader(u_char* buffer, int buffer_length);
+    static std::unique_ptr<TsPacketHeader> parseTsPacketHeader(u_char* buffer, int buffer_length);
     static void writeTsPacketHeaderToChar(const TsPacketHeader* header, char* buffer);
 } TsPacketHeader;    //32 bits, 4 bytes
 
 typedef struct Program{
     unsigned program_number                 :16;    // 节目号
-    unsigned reserved                       :3; 
+    unsigned reserved                       :3;
     unsigned network_program_map_PID        :13;    // 节目映射表的pid
 }Program;
 
 typedef struct TsPAT{
     unsigned table_id                       :8;    // 8 bit
-    unsigned section_syntax_indicator       :1;    // 1 bit 
+    unsigned section_syntax_indicator       :1;    // 1 bit
     unsigned zero                           :1;    // 1 bit
     unsigned reserved_1                     :2;
     unsigned section_length                 :12;
-    unsigned transport_stream_id            :16;  
-    unsigned reserved_2                     :2;  
+    unsigned transport_stream_id            :16;
+    unsigned reserved_2                     :2;
     unsigned version_number                 :5;
     unsigned current_next_indicator         :1;
     unsigned section_number                 :8;
@@ -95,7 +96,7 @@ typedef struct TsPAT{
     unsigned network_PID                    :13;
     unsigned CRC_32                         :32;
 public:
-    static TsPAT* parsePAT(u_char* buffer, int buffer_length);
+    static std::unique_ptr<TsPAT> parsePAT(u_char* buffer, int buffer_length);
 }TsPAT;
 
 typedef struct TsPmtStream
@@ -131,7 +132,7 @@ typedef struct TsPMT
     unsigned reserved_6                     : 4; // 0x0F
     unsigned CRC_32                         : 32;
 public:
-    static TsPMT* parsePMT(u_char* buffer, int buffer_length);
+    static std::unique_ptr<TsPMT> parsePMT(u_char* buffer, int buffer_length);
 }TsPMT;
 
 typedef struct PesPacketHeader{
@@ -149,7 +150,7 @@ typedef struct OptionalPesHeader
     unsigned copyright                      : 1;    // 1 implies copyrighted
     unsigned original_or_copy               : 1;    // 1 implies original
     unsigned pts_dts_indicator              : 2;    // 11 = both present, 01 is forbidden, 10 = only PTS, 00 = no PTS or DTS
-    unsigned escr_flag                      : 1; 
+    unsigned escr_flag                      : 1;
     unsigned escr_rate_flag                 : 1;
     unsigned dsm_trick_mode_flag            : 1;
     unsigned additional_copy_info_flag      : 1;
@@ -157,7 +158,7 @@ typedef struct OptionalPesHeader
     unsigned extension_flag                 : 1;
     unsigned pes_header_length              : 8;
 public:
-    static OptionalPesHeader* parseOptionalPesHeader(u_char* buffer, int buffer_length);
+    static std::unique_ptr<OptionalPesHeader> parseOptionalPesHeader(u_char* buffer, int buffer_length);
 } OptionalPesHeader;    //24 bits, 3 bytes
 
 typedef enum ModTsFileStatus{
@@ -169,8 +170,8 @@ typedef enum ModTsFileStatus{
 /*------------------------------- Working Func -------------------------------*/
 class ModTsFile{
 public:
-    // 给删除任�? 初始化用
-    ModTsFile(TaskParam* task_param);
+    // 给删除任务初始化用，接收 unique_ptr 转移所有权
+    ModTsFile(std::unique_ptr<TaskParam> task_param);
 
     ~ModTsFile();
     bool Start();
@@ -189,7 +190,7 @@ private:
     ModTsFileStatus    threadRunning();
     std::mutex          thread_mut;
 
-    /*----------------------------解析------------------------------*/    
+    /*----------------------------解析------------------------------*/
     // 找到就返回pts/dts的相对位置的position_pair，注意是相对位置，从buffer的起始位置开始算
     std::pair<unsigned, unsigned> findPtsfromPes(u_char* buffer, int buffer_length);
 
@@ -222,7 +223,7 @@ private:
     // 从新的pat中更新pmt列表，删除当前不再存在的pmt结构
     void refreshPmtPidList();
     bool hasPmtNodeFromList(const int pid);
-    bool refreshPmtNodeIntoList(const int pid, TsPMT* pmt);
+    bool refreshPmtNodeIntoList(const int pid, std::unique_ptr<TsPMT> pmt);
     bool isPmtPacket(const int pid);
     bool isAudioPacket(const int pid);
     bool isVideoPacket(const int pid);
@@ -233,14 +234,14 @@ private:
     bool hasPidPattern(const int pid);
 
 private:
-    // 初始化传递进来的参数
-    TaskParam* task_param_;
+    // 初始化传递进来的参数（unique_ptr 管理所有权）
+    std::unique_ptr<TaskParam> task_param_;
 
-    // 按类型分类参数
-    FuncPattern* cut_param_ = nullptr;
-    std::vector<FuncPattern*> pts_pattern_list_;        // pts跳变的参数
-    std::vector<FuncPattern*> loss_repeat_list_;        // 重复/丢包参数列表
-    std::vector<FuncPattern*> ts_err_list_;             // ts层文件数据变更
+    // 按类型分类参数（unique_ptr 管理所有权）
+    std::unique_ptr<FuncPattern> cut_param_;
+    std::vector<std::unique_ptr<FuncPattern>> pts_pattern_list_;        // pts跳变的参数
+    std::vector<std::unique_ptr<FuncPattern>> loss_repeat_list_;        // 重复/丢包参数列表
+    std::vector<std::unique_ptr<FuncPattern>> ts_err_list_;             // ts层文件数据变更
 
     // 文件相关
     std::fstream file_in_;
@@ -264,10 +265,10 @@ private:
     double cur_time_;
     double start_time_;
     double end_time_;
-    
-    // ts文件的各种相关参数
-    TsPAT* pat_;
-    std::vector<std::pair<int, TsPMT*>> pmt_pair_list_; // 随时会被更新
+
+    // ts文件的各种相关参数（unique_ptr 管理）
+    std::unique_ptr<TsPAT> pat_;
+    std::vector<std::pair<int, std::unique_ptr<TsPMT>>> pmt_pair_list_; // 随时会被更新
 
     // 统计信息
     long long get_packet_cnt = 0;               // 获得的总packet数量
@@ -281,8 +282,8 @@ private:
     long long audio_pack_cnt = 0;
     long long video_pack_cnt = 0;
 
-    
-    long long unknown_packet_cnt = 0;  
+
+    long long unknown_packet_cnt = 0;
 
 };
 

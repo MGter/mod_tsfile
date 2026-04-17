@@ -5,6 +5,7 @@
 #include <vector>
 #include <map>
 #include <cmath>
+#include <memory>
 #include <rapidjson/rapidjson.h>
 #include <rapidjson/document.h>
 
@@ -57,7 +58,7 @@ public:
     int id;
     std::string input_file;
     std::string output_file;
-    std::vector<FuncPattern*> func_pattern;
+    std::vector<std::unique_ptr<FuncPattern>> func_pattern;
 public:
     TaskParam(){
         id = 0;
@@ -65,17 +66,8 @@ public:
         output_file = "";
     }
     ~TaskParam(){
-        std::cout << "Now, release " << func_pattern.size() << "pattern" << std::endl;
-        if(!func_pattern.empty()){
-            for(auto func : func_pattern){
-                if(func != nullptr){
-                    delete func;
-                    func = nullptr;
-                }
-            }
-            func_pattern.clear();
-        }
-
+        std::cout << "Now, release " << func_pattern.size() << " pattern" << std::endl;
+        // unique_ptr 自动管理内存，无需手动 delete
         func_pattern.clear();
     }
     bool parseJson(const rapidjson::Value& TaskParam);

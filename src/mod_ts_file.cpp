@@ -3,12 +3,12 @@
 #include "common/Log.h"
 
 /*------------------------------- Base Struct -------------------------------*/
-TsPAT* TsPAT::parsePAT(u_char* buffer, int buffer_length) {
+std::unique_ptr<TsPAT> TsPAT::parsePAT(u_char* buffer, int buffer_length) {
     if(buffer == nullptr || buffer_length < 8){
         return nullptr;
     }
 
-    TsPAT* packet = new TsPAT();
+    auto packet = std::make_unique<TsPAT>();
 
     packet->table_id                    = buffer[0];
     packet->section_syntax_indicator    = buffer[1] >> 7;
@@ -16,7 +16,6 @@ TsPAT* TsPAT::parsePAT(u_char* buffer, int buffer_length) {
 
     // PAT表的table_id必须为0，section_syntax_indicator必须为1，zero必须为0
     if(packet->table_id != 0 || packet->section_syntax_indicator != 1 || packet->zero != 0){
-        delete packet;
         return nullptr;
     }
 
@@ -26,7 +25,6 @@ TsPAT* TsPAT::parsePAT(u_char* buffer, int buffer_length) {
     // 缓冲区长度检查：section_length + 3（table_id等3字节）
     int total_len = 3 + packet->section_length;
     if(buffer_length < total_len || packet->section_length < 9){
-        delete packet;
         return nullptr;
     }
 
@@ -71,18 +69,17 @@ TsPAT* TsPAT::parsePAT(u_char* buffer, int buffer_length) {
     return packet;
 }
 
-TsPMT* TsPMT::parsePMT(u_char* buffer, int buffer_length)
+std::unique_ptr<TsPMT> TsPMT::parsePMT(u_char* buffer, int buffer_length)
 {
     if(buffer == nullptr || buffer_length < 12){
         return nullptr;
     }
 
-    TsPMT* packet = new TsPMT;
+    auto packet = std::make_unique<TsPMT>();
 
     packet->table_id = buffer[0];
     // PMT的table_id必须为0x02
     if(packet->table_id != 0x02){
-        delete packet;
         return nullptr;
     }
 
@@ -94,7 +91,6 @@ TsPMT* TsPMT::parsePMT(u_char* buffer, int buffer_length)
     // 缓冲区长度检查
     int total_len = packet->section_length + 3;
     if(buffer_length < total_len || packet->section_length < 9){
-        delete packet;
         return nullptr;
     }
 
@@ -112,7 +108,6 @@ TsPMT* TsPMT::parsePMT(u_char* buffer, int buffer_length)
 
     // 检查program_info_length是否会导致越界
     if(12 + packet->program_info_length > buffer_length){
-        delete packet;
         return nullptr;
     }
 
@@ -163,13 +158,13 @@ TsPMT* TsPMT::parsePMT(u_char* buffer, int buffer_length)
     return packet;
 }
 
-TsPacketHeader* TsPacketHeader::parseTsPacketHeader(u_char* buffer, int buffer_length) {
+std::unique_ptr<TsPacketHeader> TsPacketHeader::parseTsPacketHeader(u_char* buffer, int buffer_length) {
     if(buffer == nullptr || buffer_length < 4){
         Log::error(__FILE__, __LINE__, "Null buffer or Invalid buffer length");
         return nullptr;
     }
 
-    TsPacketHeader* header = new TsPacketHeader;
+    auto header = std::make_unique<TsPacketHeader>();
 
     header->sync_byte = buffer[0];
     header->transport_error_indicator = (buffer[1] >> 7) & 0x01;
@@ -199,7 +194,7 @@ void TsPacketHeader::writeTsPacketHeaderToChar(const TsPacketHeader* header, cha
     );
 }
 
-OptionalPesHeader* OptionalPesHeader::parseOptionalPesHeader(u_char* buffer, int buffer_length) {
+std::unique_ptr<OptionalPesHeader> OptionalPesHeader::parseOptionalPesHeader(u_char* buffer, int buffer_length) {
     // 检查输入缓冲区长度是否足够
     if(buffer == nullptr ||  buffer_length < 3){
         Log::error(__FILE__, __LINE__, "Null buffer or Optional Pes header out of buffer length");
@@ -207,7 +202,7 @@ OptionalPesHeader* OptionalPesHeader::parseOptionalPesHeader(u_char* buffer, int
     }
 
     // 创建OptionalPesHeader结构体对象
-    OptionalPesHeader* header = new OptionalPesHeader;
+    auto header = std::make_unique<OptionalPesHeader>();
 
     // 从缓冲区中读取字节并映射到结构体的字段中
     u_char byte = buffer[0];
@@ -233,10 +228,10 @@ OptionalPesHeader* OptionalPesHeader::parseOptionalPesHeader(u_char* buffer, int
 }
 
 /*------------------------------- Working Func -------------------------------*/
-// 构造函�?
-ModTsFile::ModTsFile(TaskParam* task_param){
+// 构造函数，接收 unique_ptr 转移所有权
+ModTsFile::ModTsFile(std::unique_ptr<TaskParam> task_param){
     // 获取所有参数
-    task_param_ = task_param;
+    task_param_ = std::move(task_param);
 
     be_started_ = false;
     be_success_ = false;
@@ -252,7 +247,7 @@ ModTsFile::ModTsFile(TaskParam* task_param){
     start_time_ = -1;
     end_time_ = -1;
 
-    // ts文件的参数
+    // ts文件的参数（unique_ptr 自动初始化为 nullptr）
     pat_ = nullptr;
     pmt_pair_list_.clear();
 
@@ -263,7 +258,7 @@ ModTsFile::ModTsFile(TaskParam* task_param){
 // 析构函数
 ModTsFile::~ModTsFile(){
     Stop();
-    clearParamList();
+    // unique_ptr 自动管理内存，无需手动清理
 };
 
 // 启动任务
@@ -272,26 +267,26 @@ bool ModTsFile::Start(){
         std::cerr << "TaskParam starting..." << std::endl;
         return false;
     }
-    
-    // 开启输入文�?
+
+    // 开启输入文件
     file_in_.open(task_param_->input_file.c_str(), std::ios_base::in | std::ios_base::out);
     if(!file_in_.is_open()){
         std::cerr << "Failed to open the input file: " << task_param_->input_file << std::endl;
         return false;
     }
 
-    // 开启输出文�?
+    // 开启输出文件
     file_out_.open(task_param_->output_file.c_str(), std::ios_base::out);
     if(!file_out_.is_open()){
         std::cerr << "Failed to open the output file: " << task_param_->output_file << std::endl;
         file_in_.close();
         return false;
-    } 
+    }
 
 
-    // 生成随机数种�?
+    // 生成随机数种子
     std::srand(static_cast<unsigned int>(std::time(nullptr)));
-    
+
     // 启动线程
     thread_be_running_ = true;
     parsing_thread_ = std::thread(&ModTsFile::doParsing, this);
@@ -331,7 +326,7 @@ void ModTsFile::Stop(){
     return;
 };
 
-// 重新整理paramlist 到各自的list中
+// 重新整理paramlist 到各自的list中（使用 move 转移所有权）
 bool ModTsFile::arrangeParamList(){
     if(task_param_ == nullptr)
         return false;
@@ -339,11 +334,14 @@ bool ModTsFile::arrangeParamList(){
     // pts_pattern_list_：  add、minus、sin、pulse\mult、div
     // loss_repeat_list_：  loss、repeate
     // ts_err_list_：       others
-    for(auto func : task_param_->func_pattern){
+
+    // 从 task_param_ 的 vector 中取出并转移到各自的列表
+    std::vector<std::unique_ptr<FuncPattern>> remaining;
+    for(auto& func : task_param_->func_pattern){
         switch (func->pts_func)
         {
         case PtsFunc::cut:
-            cut_param_ = func; 
+            cut_param_ = std::move(func);
             start_time_ = cut_param_->start_sec;
             end_time_ = cut_param_->end_sec;
             break;
@@ -352,61 +350,36 @@ bool ModTsFile::arrangeParamList(){
         case PtsFunc::sin:
         case PtsFunc::pulse:
         case PtsFunc::mult:
-            pts_pattern_list_.push_back(func);
+            pts_pattern_list_.push_back(std::move(func));
             break;
         case PtsFunc::repeate:
         case PtsFunc::pat_delete:
         case PtsFunc::pmt_delete:
         case PtsFunc::loss:
-            loss_repeat_list_.push_back(func);
+            loss_repeat_list_.push_back(std::move(func));
             break;
         case PtsFunc::null:
-            ts_err_list_.push_back(func);
-        case PtsFunc::others:
+            ts_err_list_.push_back(std::move(func));
             break;
+        case PtsFunc::others:
         default:
+            // 其他情况保留（会被自动清理）
             break;
         }
     }
+    // 清空原列表
+    task_param_->func_pattern.clear();
     return true;
 }
 
-// 清理list的逻辑，指针已经分散到各个列表中，只需清理各列表即可
+// 清理list的逻辑（unique_ptr 自动管理）
 bool ModTsFile::clearParamList(){
-    // 注意：指针已在 arrangeParamList() 中转移到各列表
-    // 不要重复 delete task_param_->func_pattern 的元素
-
-    if(cut_param_ != nullptr){
-        delete cut_param_;
-        cut_param_ = nullptr;
-    }
-
-    for(auto param : pts_pattern_list_){
-        if(param != nullptr){
-            delete param;
-        }
-    }
+    // unique_ptr 自动管理内存，只需清空列表
+    cut_param_.reset();
     pts_pattern_list_.clear();
-
-    for(auto param : loss_repeat_list_){
-        if(param != nullptr){
-            delete param;
-        }
-    }
     loss_repeat_list_.clear();
-
-    for(auto param : ts_err_list_){
-        if(param != nullptr){
-            delete param;
-        }
-    }
     ts_err_list_.clear();
-
-    // 清空 task_param 的指针列表（不 delete，因为指针已转移）
-    if(task_param_ != nullptr){
-        task_param_->func_pattern.clear();
-    }
-
+    task_param_->func_pattern.clear();
     return true;
 }
 
@@ -459,7 +432,7 @@ void ModTsFile::threadDeinit(){
     Log::info(__FILE__, __LINE__, "pmt packet cnt: %d", pmt_packet_cnt);
     Log::info(__FILE__, __LINE__, "audio packet cnt: %d", audio_pack_cnt);
     Log::info(__FILE__, __LINE__, "video packet cnt: %d", video_pack_cnt);
-    
+
     Log::info(__FILE__, __LINE__, "unknown packet cnt: %d", unknown_packet_cnt);
 
     return;
@@ -555,24 +528,18 @@ ModTsFileStatus ModTsFile::threadRunning(){
         if(ts_packet_header->payload_unit_start_indicator == 0b1){
             cur_position++;
         }
-        TsPAT* new_pat = TsPAT::parsePAT(&buffer[cur_position], TS_PACKET_LENGTH - cur_position);
+        auto new_pat = TsPAT::parsePAT(&buffer[cur_position], TS_PACKET_LENGTH - cur_position);
         if(new_pat != nullptr){
             Log::debug(__FILE__, __LINE__, "Success to read a pat");
             Log::debug(__FILE__, __LINE__, "this pat has %d programs", new_pat->program.size());
 
-            if(pat_ != nullptr){
-                delete pat_;
-                pat_ = nullptr;
-            }
-            pat_ = new_pat;
+            pat_ = std::move(new_pat);
             if(pat_->program.empty()){
                 Log::debug(__FILE__, __LINE__, "pat has no program");
             }
             refreshPmtPidList();
         }
         else{
-            delete new_pat;
-            new_pat = nullptr;
             Log::error(__FILE__, __LINE__, "Failed to parse the pat table");
         }
 
@@ -589,13 +556,13 @@ ModTsFileStatus ModTsFile::threadRunning(){
             if(ts_packet_header->payload_unit_start_indicator == 0b1){
                 cur_position++;
             }
-            TsPMT* cur_pmt = TsPMT::parsePMT(&buffer[cur_position], TS_PACKET_LENGTH - cur_position);
+            auto cur_pmt = TsPMT::parsePMT(&buffer[cur_position], TS_PACKET_LENGTH - cur_position);
             if(cur_pmt != nullptr){
                 if(hasPmtNodeFromList(pid)){
-                    refreshPmtNodeIntoList(pid, cur_pmt);
+                    refreshPmtNodeIntoList(pid, std::move(cur_pmt));
                 }
                 else{
-                    pmt_pair_list_.push_back(std::make_pair(pid, cur_pmt));
+                    pmt_pair_list_.push_back(std::make_pair(pid, std::move(cur_pmt)));
                 }
             }
             else{
@@ -615,7 +582,7 @@ ModTsFileStatus ModTsFile::threadRunning(){
                 Log::info(__FILE__, __LINE__, "Gat a audio pes load header!");
                 pts_pair = findPtsfromPes(&buffer[cur_position], TS_PACKET_LENGTH - cur_position);
             }
-            
+
             int64_t final_pts_change = 0;
             if(pts_pair.first != 0){
                 Log::debug(__FILE__, __LINE__, "Gat a audio pts!");
@@ -689,7 +656,7 @@ ModTsFileStatus ModTsFile::threadRunning(){
                 if(pts_change != 0){
                     final_pts_change += pts_change;
                 }
-                
+
 
                 // 如果不为0再进行修改
                 if(final_pts_change != 0){
@@ -855,13 +822,11 @@ ModTsFileStatus ModTsFile::threadRunning(){
 int64_t ModTsFile::getPtsChange(Media media_type, int pid, u_int64_t cur_pts){
     int64_t pts_change = 0;
     for(auto iter = pts_pattern_list_.begin(); iter != pts_pattern_list_.end(); iter++){
-        FuncPattern* pattern = *iter;
+        FuncPattern* pattern = iter->get();
         // 超时的pts pattern删除
         if(cur_time_ > pattern->end_sec){
-            Log::info(__FILE__, __LINE__, "At sec %f, pattern overtime, so delete a pattern", cur_time_);
-            delete pattern;
-            pattern = nullptr;
-            pts_pattern_list_.erase(iter);
+            Log::info(__FILE__, __LINE__, "At sec %f, pattern overtime, so remove a pattern", cur_time_);
+            iter = pts_pattern_list_.erase(iter);
             iter--;
         }
         // PID 直接匹配模式：如果指定了 target_pid，优先使用 PID 匹配
@@ -876,7 +841,7 @@ int64_t ModTsFile::getPtsChange(Media media_type, int pid, u_int64_t cur_pts){
         }
         // 符合条件的操作
         if(cur_time_ >= pattern->start_sec && cur_time_ <= pattern->end_sec){
-            int64_t base_pts = pattern->pts_base; 
+            int64_t base_pts = pattern->pts_base;
             PtsFunc func = pattern->pts_func;
             switch (func)
             {
@@ -992,14 +957,14 @@ void ModTsFile::rewritePts(char* payload, u_int64_t pts){
 
     for(int i = 0; i < 5; i++)
         payload[i] = 0;
-    // 传入对应的内�?
+    // 传入对应的内容
     payload[0] = (char)((pts >> 29) & 0x0E);
     payload[1] = (char)((pts >> 22) & 0xFF);
     payload[2] = (char)((pts >> 14) & 0xFE);
     payload[3] = (char)((pts >> 7) & 0xFF);
     payload[4] = (char)((pts << 1) & 0xFE);
 
-    // 添加标记�?
+    // 添加标记位
     payload[0] |= basic_marker;
     payload[2] |= 0b00000001;
     payload[4] |= 0b00000001;
@@ -1079,7 +1044,7 @@ std::pair<unsigned, unsigned> ModTsFile::findPtsfromPes(u_char* buffer, int buff
     }
 }
 
-// 从字节中获取pts的数�?/其实pts和dts储存数值的位置都是一样的
+// 从字节中获取pts的数据/其实pts和dts储存数值的位置都是一样的
 u_int64_t ModTsFile::combinePts(char buffer[5]) {
     u_int64_t pts_num = 0;
     pts_num |= ((u_int64_t)buffer[0] & 0b00001110) << 29;
@@ -1100,7 +1065,7 @@ std::string ModTsFile::removeSuffix(const std::string& str, const std::string& s
     return str;
 }
 
-// 更换输出文件�?
+// 更换输出文件名
 bool ModTsFile::changeOutputFile(std::ofstream* file_out, std::string& file_name, int slice_count){
     (void)file_out;  // 未使用但保留以兼容接口
     file_out_.close();
@@ -1140,10 +1105,7 @@ void ModTsFile::refreshPmtPidList(){
         int cur_pid = (*iter).first;
         // pat的pid列表中没找到的PMT pid，需要删除
         if(std::find(pat_pmt_pid_list.begin(), pat_pmt_pid_list.end(), cur_pid) == pat_pmt_pid_list.end()){
-            TsPMT* temp_pmt = (*iter).second;
-            delete temp_pmt;
-            temp_pmt = nullptr;
-            pmt_pair_list_.erase(iter);
+            iter = pmt_pair_list_.erase(iter);
             iter--;
         }
     }
@@ -1163,8 +1125,8 @@ bool ModTsFile::isPmtPacket(const int pid){
 
 // 获取指定PID的流类型（内部辅助函数）
 uint8_t ModTsFile::getStreamTypeByPid(const int pid){
-    for(auto pmt_pair : pmt_pair_list_){
-        auto pmt = pmt_pair.second;
+    for(auto& pmt_pair : pmt_pair_list_){
+        auto& pmt = pmt_pair.second;
         if(pmt != nullptr){
             for(auto program : pmt->PMT_Stream){
                 if(pid == program.elementary_PID){
@@ -1196,7 +1158,7 @@ bool ModTsFile::isVideoPacket(const int pid){
 
 // 从当前已经解析的列表中查找pid是否存在
 bool ModTsFile::hasPmtNodeFromList(const int pid){
-    for(auto pmt_pair : pmt_pair_list_){
+    for(auto& pmt_pair : pmt_pair_list_){
         if(pid == pmt_pair.first){
             return true;
         }
@@ -1205,12 +1167,11 @@ bool ModTsFile::hasPmtNodeFromList(const int pid){
 }
 
 // 更新pmt Node的信息
-bool ModTsFile::refreshPmtNodeIntoList(const int pid, TsPMT* pmt){
+bool ModTsFile::refreshPmtNodeIntoList(const int pid, std::unique_ptr<TsPMT> pmt){
     for(auto iter = pmt_pair_list_.begin(); iter != pmt_pair_list_.end(); iter++){
-        auto pmt_pair = *iter;
-        if(pid == pmt_pair.first){
-            pmt_pair_list_.erase(iter);
-            pmt_pair_list_.push_back(std::make_pair(pid, pmt));
+        if(pid == iter->first){
+            iter = pmt_pair_list_.erase(iter);
+            pmt_pair_list_.push_back(std::make_pair(pid, std::move(pmt)));
             return true;
         }
     }
@@ -1250,19 +1211,19 @@ bool ModTsFile::isAudioStream(uint8_t streamType) {
 // 检查是否有 pattern 指定了该 PID（用于 PID 直接匹配模式）
 bool ModTsFile::hasPidPattern(const int pid) {
     // 检查 pts_pattern_list_ 中是否有指定该 PID 的 pattern
-    for(auto pattern : pts_pattern_list_) {
+    for(auto& pattern : pts_pattern_list_) {
         if(pattern->target_pid > 0 && pattern->target_pid == pid) {
             return true;
         }
     }
     // 检查 loss_repeat_list_ 中是否有指定该 PID 的 pattern
-    for(auto pattern : loss_repeat_list_) {
+    for(auto& pattern : loss_repeat_list_) {
         if(pattern->target_pid > 0 && pattern->target_pid == pid) {
             return true;
         }
     }
     // 检查 ts_err_list_ 中是否有指定该 PID 的 pattern
-    for(auto pattern : ts_err_list_) {
+    for(auto& pattern : ts_err_list_) {
         if(pattern->target_pid > 0 && pattern->target_pid == pid) {
             return true;
         }
@@ -1281,12 +1242,10 @@ int ModTsFile::shouldDeleteThisPack(Media media_type, int pid){
 
     // 循环次数
     for(auto iter = loss_repeat_list_.begin(); iter != loss_repeat_list_.end() ; iter++){
-        FuncPattern* pattern = *iter;
+        FuncPattern* pattern = iter->get();
         if(cur_time_ >  pattern->end_sec){
-            Log::debug(__FILE__, __LINE__, "At sec %f, pattern overtime, so delete", cur_time_);
-            delete pattern;
-            pattern = nullptr;
-            loss_repeat_list_.erase(iter);
+            Log::debug(__FILE__, __LINE__, "At sec %f, pattern overtime, so remove", cur_time_);
+            iter = loss_repeat_list_.erase(iter);
             iter--;
         }
         // PID 直接匹配模式：如果指定了 target_pid，优先使用 PID 匹配
@@ -1301,7 +1260,7 @@ int ModTsFile::shouldDeleteThisPack(Media media_type, int pid){
         }
         // 符合条件的执行操作
         if(cur_time_ >= pattern->start_sec && cur_time_ <=  pattern->end_sec){
-            // random delete 
+            // random delete
             if(pattern->pts_func == PtsFunc::loss){
                 Log::debug(__FILE__, __LINE__, "get a loss func");
                 int rate = static_cast<int>(pattern->pts_base) % 100;
@@ -1351,7 +1310,7 @@ int ModTsFile::shouldDeleteThisPack(Media media_type, int pid){
             }
         }
     }
-    
+
     return ans;
 }
 
@@ -1362,13 +1321,11 @@ bool ModTsFile::shouldFillWithNull(Media media_type, int pid){
     }
     // 循环次数
     for(auto iter = ts_err_list_.begin(); iter != ts_err_list_.end() ; iter++){
-        FuncPattern* pattern = *iter;
+        FuncPattern* pattern = iter->get();
         // 删除超时部分
         if(cur_time_ >  pattern->end_sec){
-            Log::debug(__FILE__, __LINE__, "At sec %f, pattern overtime, so delete", cur_time_);
-            delete pattern;
-            pattern = nullptr;
-            ts_err_list_.erase(iter);
+            Log::debug(__FILE__, __LINE__, "At sec %f, pattern overtime, so remove", cur_time_);
+            iter = ts_err_list_.erase(iter);
             iter--;
         }
         // PID 直接匹配模式：如果指定了 target_pid，优先使用 PID 匹配

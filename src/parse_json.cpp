@@ -96,12 +96,11 @@ bool TaskParam::parseJson(const rapidjson::Value& task_param) {
 
     const rapidjson::Value& patternArray = task_param["pattern"];
     for (rapidjson::SizeType i = 0; i < patternArray.Size(); i++) {
-        FuncPattern* pattern = new FuncPattern();
+        auto pattern = std::make_unique<FuncPattern>();
         if (!pattern->parseJson(patternArray[i])) {
-            delete pattern;
             return false;
         }
-        func_pattern.push_back(pattern);
+        func_pattern.push_back(std::move(pattern));
     }
 
     return true;
@@ -111,7 +110,7 @@ void TaskParam::printTaskParam(){
     std::cout << "task_param id: " << id << std::endl;
     std::cout << "input file is: " << input_file << std::endl;
     std::cout << "output file is: " << output_file << std::endl;
-    for(auto pattern : func_pattern){
+    for(auto& pattern : func_pattern){
         std::cout << "pattern: " << std::endl;
         pattern->printPattern();
     }
@@ -182,7 +181,7 @@ PtsFunc StrToPtsFunc(const std::string& string) {
         return it->second;
     }
 
-    // ���������ַ����޷�ӳ�䵽ö��ֵ���򷵻�Ĭ��ֵ"others"
+    // 如果输入字符串无法映射到枚举值，则返回默认值"others"
     return PtsFunc::others;
 }
 

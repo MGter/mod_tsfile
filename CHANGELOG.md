@@ -2,6 +2,16 @@
 
 ## 2026-04-18
 
+### 重构：所有裸指针替换为智能指针
+- 使用 `std::unique_ptr` 替代所有裸指针，自动管理内存
+- `TaskParam::func_pattern` 改为 `std::vector<std::unique_ptr<FuncPattern>>`
+- `ModTsFile` 构造函数接收 `std::unique_ptr<TaskParam>` 转移所有权
+- `ModTsFile` 内部所有 pattern 列表使用 `std::unique_ptr`
+- `TsPAT::parsePAT`、`TsPMT::parsePMT` 等返回 `std::unique_ptr`
+- `pat_`、`pmt_pair_list_` 使用智能指针管理
+- 移除所有手动 `delete` 代码，消除内存泄漏风险
+- Makefile 升级为 C++14 以支持 `std::make_unique`
+
 ### 新增 PID 直接指定模式
 - `FuncPattern` 类新增 `target_pid` 字段，支持直接指定 PID 进行修改
 - JSON 配置支持可选 `"pid"` 字段，指定后直接按 PID 匹配，无需 PMT 解析
