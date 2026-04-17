@@ -10,6 +10,7 @@ std::ofstream Log::m_logFile;
 void Log::initLogLevel() {
     Log::setLogLevel(DEBUG);
     Log::setLogPath("./log");
+    Log::createLogFile();  // 初始化时就创建日志文件
 }
 
 void Log::setLogLevel(LogLevel level) {
@@ -91,12 +92,20 @@ bool Log::createLogFile() {
     std::tm* timeInfo = std::localtime(&now);
     std::ostringstream oss;
     oss << std::put_time(timeInfo, "%Y%m");
-    std::string logDir = m_logPath + "/" + oss.str();
-    std::string logFilename = logDir + "/" + oss.str() + ".log";
+    std::string monthDir = oss.str();
 
+    // 先确保基础日志路径存在
+    if (!directoryExists(m_logPath)) {
+        createDirectory(m_logPath);
+    }
+
+    // 然后确保月份子目录存在
+    std::string logDir = m_logPath + "/" + monthDir;
     if (!directoryExists(logDir)) {
         createDirectory(logDir);
     }
+
+    std::string logFilename = logDir + "/" + monthDir + ".log";
 
     // close the file
     if(m_logFile.is_open()){
