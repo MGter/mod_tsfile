@@ -44,8 +44,14 @@ bool FuncPattern::parseJson(const rapidjson::Value& pattern) {
     else{
         ;
     }
-    
-    
+
+    // 解析可选的 pid 字段，如果指定了 pid 则使用 PID 直接匹配
+    if (pattern.HasMember("pid") && pattern["pid"].IsInt()) {
+        target_pid = pattern["pid"].GetInt();
+        Log::debug(__FILE__, __LINE__, "target_pid is %d", target_pid);
+    }
+
+
     printPattern();
     return true;
 }
@@ -56,6 +62,7 @@ void FuncPattern::printPattern(){
     std::cout << "\tmedia: "        << MediaToStr(media) << std::endl;
     std::cout << "\tpts_func: "     << PtsFuncToStr(pts_func) << std::endl;
     std::cout << "\tpts_base: "     << pts_base << std::endl;
+    std::cout << "\ttarget_pid: "   << target_pid << std::endl;
 }
 
 bool TaskParam::parseJson(const rapidjson::Value& task_param) {

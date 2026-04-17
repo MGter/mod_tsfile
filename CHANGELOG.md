@@ -2,6 +2,28 @@
 
 ## 2026-04-18
 
+### 新增 PID 直接指定模式
+- `FuncPattern` 类新增 `target_pid` 字段，支持直接指定 PID 进行修改
+- JSON 配置支持可选 `"pid"` 字段，指定后直接按 PID 匹配，无需 PMT 解析
+- 修改 `getPtsChange`、`shouldDeleteThisPack`、`shouldFillWithNull` 函数支持 PID 匹配
+- 新增 `hasPidPattern` 辅助函数检查是否有 pattern 指定该 PID
+- 即使未解析 PAT/PMT，指定 PID 的 pattern 也能生效
+
+**用法示例：**
+```json
+{
+  "pattern": [
+    {
+      "start_sec": 30,
+      "end_sec": 90,
+      "pid": 256,
+      "func": "add",
+      "pts_base": 180000
+    }
+  ]
+}
+```
+
 ### 修复日志目录不存在时程序崩溃问题
 - `createLogFile` 先创建父目录 `m_logPath`，再创建月份子目录
 - `initLogLevel` 时主动创建日志文件，避免首次写入时警告

@@ -131,8 +131,14 @@ void printHelp(){
     std::cout << "    mult       - Multiply PTS factor" << std::endl;
     std::cout << "    cut        - Time-based cutting" << std::endl;
     std::cout << "    loss       - Random packet loss (%)" << std::endl;
-    std::cout << "    repeate   - Packet duplication" << std::endl;
+    std::cout << "    repeate    - Packet duplication" << std::endl;
     std::cout << "    null       - Fill null packets" << std::endl;
+    std::cout << std::endl;
+
+    std::cout << "MATCHING MODES:" << std::endl;
+    std::cout << "    media: all/audio/video - Match by stream type" << std::endl;
+    std::cout << "    pid:  <number>         - Match by PID directly" << std::endl;
+    std::cout << "    (pid mode bypasses PMT, works without PAT/PMT)" << std::endl;
     std::cout << std::endl;
 
     std::cout << "NOTES:" << std::endl;

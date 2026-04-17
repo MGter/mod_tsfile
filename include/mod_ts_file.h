@@ -197,11 +197,12 @@ private:
     // 从两个u int 64中获得一个时间差，也就是将△pts转换为时间△time
     double getTimeDiff(u_int64_t start_pts, u_int64_t end_pts);
     // 将所有的pattern叠加，获得当前时间节点的pts修改量
-    int64_t getPtsChange(Media media_type, u_int64_t cur_pts);
+    // pid 参数用于 PID 直接匹配模式，当 pattern 指定了 target_pid 时优先使用 PID 匹配
+    int64_t getPtsChange(Media media_type, int pid, u_int64_t cur_pts);
     // 返回-1，代表删除，返回0，代表不变，返回1，代表重复
-    int shouldDeleteThisPack(Media media_type, int pid); 
+    int shouldDeleteThisPack(Media media_type, int pid);
     // 查找此处是否需要填充空包
-    bool shouldFillWithNull(Media media_type);
+    bool shouldFillWithNull(Media media_type, int pid);
     // 修改PTS
     bool changePTS(u_char* buffer, int buffer_length, int64_t pts_change);
     // 修改DTS
@@ -228,6 +229,8 @@ private:
     uint8_t getStreamTypeByPid(const int pid);  // 内部辅助函数
     bool isVideoStream(uint8_t streamType);
     bool isAudioStream(uint8_t streamType);
+    // PID 模式相关：检查是否有 pattern 指定了该 PID
+    bool hasPidPattern(const int pid);
 
 private:
     // 初始化传递进来的参数

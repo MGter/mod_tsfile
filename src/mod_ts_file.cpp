@@ -633,7 +633,7 @@ ModTsFileStatus ModTsFile::threadRunning(){
                 }
 
                 // 获取当前pts跳变情况
-                int64_t pts_change = getPtsChange(Media::audio, cur_pts_);
+                int64_t pts_change = getPtsChange(Media::audio, pid, cur_pts_);
                 final_pts_change += pts_change;
 
                 // 对需要进行修改pts的部分进行修改
@@ -649,7 +649,7 @@ ModTsFileStatus ModTsFile::threadRunning(){
             }
 
             // 如果需要填充空包，就直接填充
-            if(shouldFillWithNull(Media::audio)){
+            if(shouldFillWithNull(Media::audio, pid)){
                 Log::info(__FILE__, __LINE__, "Fill with a null pack to a audio pack");
                 writeNullPack((char*)buffer, TS_PACKET_LENGTH);
             }
@@ -685,7 +685,7 @@ ModTsFileStatus ModTsFile::threadRunning(){
                 }
 
                 // 获取当前pts跳变情况
-                int64_t pts_change = getPtsChange(Media::video, cur_pts_);
+                int64_t pts_change = getPtsChange(Media::video, pid, cur_pts_);
                 if(pts_change != 0){
                     final_pts_change += pts_change;
                 }
@@ -705,7 +705,7 @@ ModTsFileStatus ModTsFile::threadRunning(){
             }
 
             // 如果需要填充空包，就直接填充
-            if(shouldFillWithNull(Media::video)){
+            if(shouldFillWithNull(Media::video, pid)){
                 Log::info(__FILE__, __LINE__, "Fill with a null pack to a video pack");
                 writeNullPack((char*)buffer, TS_PACKET_LENGTH);
             }
@@ -713,9 +713,105 @@ ModTsFileStatus ModTsFile::threadRunning(){
             // 对时间进行更新后再决定对本包的处理
             loss_repeat_ans = shouldDeleteThisPack(Media::video, pid);
         }
+        // PID 直接匹配模式：检查是否有 pattern 指定了该 PID
+        else if(hasPidPattern(pid)){
+            // 获取pts时间
+            std::pair<unsigned, unsigned> pts_pair = std::pair<unsigned, unsigned>(0,0);
+            if(ts_packet_header->payload_unit_start_indicator == 0b1){
+                pts_pair = findPtsfromPes(&buffer[cur_position], TS_PACKET_LENGTH - cur_position);
+            }
+
+            int64_t final_pts_change = 0;
+            if(pts_pair.first != 0){
+                int position = cur_position + pts_pair.first;
+                int buffer_length = TS_PACKET_LENGTH - position;
+                if(start_pts_ == 0){
+                    start_pts_ = combinePts((char*)&buffer[position]);
+                }
+                cur_pts_ = combinePts((char*)&buffer[position]);
+                cur_time_ = getTimeDiff(start_pts_, cur_pts_);
+
+                Log::debug(__FILE__, __LINE__, "PID %d packet time: %f, pts: %llu", pid, cur_time_, cur_pts_);
+                if(end_time_ > 0 && cur_time_ > end_time_){
+                    Log::info(__FILE__, __LINE__, "Over time at %f, stop", cur_time_);
+                    return ModTsFileStatus::Stop;
+                }
+
+                // 获取当前pts跳变情况（使用 Media::others 因为 PID 模式不关心 media 类型）
+                int64_t pts_change = getPtsChange(Media::others, pid, cur_pts_);
+                final_pts_change += pts_change;
+
+                // 对需要进行修改pts的部分进行修改
+                if(final_pts_change != 0){
+                    changePTS(&buffer[position], buffer_length, final_pts_change);
+                    Log::info(__FILE__, __LINE__, "Change pts at %f for PID %d, add %lld", cur_time_, pid, final_pts_change);
+                }
+            }
+            if(pts_pair.second != 0){
+                int position = cur_position + pts_pair.second;
+                int buffer_length = TS_PACKET_LENGTH - position;
+                changeDTS(&buffer[position], buffer_length, final_pts_change);
+            }
+
+            // 如果需要填充空包
+            if(shouldFillWithNull(Media::others, pid)){
+                Log::info(__FILE__, __LINE__, "Fill with null pack for PID %d", pid);
+                writeNullPack((char*)buffer, TS_PACKET_LENGTH);
+            }
+
+            // 决定对本包的处理（loss/repeate）
+            loss_repeat_ans = shouldDeleteThisPack(Media::others, pid);
+        }
         else{
             unknown_packet_cnt++;
         }
+    }
+    // 未解析出pat表，但如果有 PID pattern，仍然可以处理
+    else if(hasPidPattern(ts_packet_header->pid)){
+        int pid = ts_packet_header->pid;
+
+        // 获取pts时间
+        std::pair<unsigned, unsigned> pts_pair = std::pair<unsigned, unsigned>(0,0);
+        if(ts_packet_header->payload_unit_start_indicator == 0b1){
+            pts_pair = findPtsfromPes(&buffer[cur_position], TS_PACKET_LENGTH - cur_position);
+        }
+
+        int64_t final_pts_change = 0;
+        if(pts_pair.first != 0){
+            int position = cur_position + pts_pair.first;
+            int buffer_length = TS_PACKET_LENGTH - position;
+            if(start_pts_ == 0){
+                start_pts_ = combinePts((char*)&buffer[position]);
+            }
+            cur_pts_ = combinePts((char*)&buffer[position]);
+            cur_time_ = getTimeDiff(start_pts_, cur_pts_);
+
+            Log::debug(__FILE__, __LINE__, "PID %d packet time: %f (no PAT), pts: %llu", pid, cur_time_, cur_pts_);
+            if(end_time_ > 0 && cur_time_ > end_time_){
+                Log::info(__FILE__, __LINE__, "Over time at %f, stop", cur_time_);
+                return ModTsFileStatus::Stop;
+            }
+
+            int64_t pts_change = getPtsChange(Media::others, pid, cur_pts_);
+            final_pts_change += pts_change;
+
+            if(final_pts_change != 0){
+                changePTS(&buffer[position], buffer_length, final_pts_change);
+                Log::info(__FILE__, __LINE__, "Change pts at %f for PID %d, add %lld", cur_time_, pid, final_pts_change);
+            }
+        }
+        if(pts_pair.second != 0){
+            int position = cur_position + pts_pair.second;
+            int buffer_length = TS_PACKET_LENGTH - position;
+            changeDTS(&buffer[position], buffer_length, final_pts_change);
+        }
+
+        if(shouldFillWithNull(Media::others, pid)){
+            Log::info(__FILE__, __LINE__, "Fill with null pack for PID %d", pid);
+            writeNullPack((char*)buffer, TS_PACKET_LENGTH);
+        }
+
+        loss_repeat_ans = shouldDeleteThisPack(Media::others, pid);
     }
     // 未解析出pat表，无法进行，直接跳过
     else{
@@ -756,7 +852,7 @@ ModTsFileStatus ModTsFile::threadRunning(){
 }
 
 // 获得叠加的跳变
-int64_t ModTsFile::getPtsChange(Media media_type,u_int64_t cur_pts){
+int64_t ModTsFile::getPtsChange(Media media_type, int pid, u_int64_t cur_pts){
     int64_t pts_change = 0;
     for(auto iter = pts_pattern_list_.begin(); iter != pts_pattern_list_.end(); iter++){
         FuncPattern* pattern = *iter;
@@ -768,12 +864,18 @@ int64_t ModTsFile::getPtsChange(Media media_type,u_int64_t cur_pts){
             pts_pattern_list_.erase(iter);
             iter--;
         }
-        // 不符合条件的跳过
+        // PID 直接匹配模式：如果指定了 target_pid，优先使用 PID 匹配
+        else if(pattern->target_pid > 0){
+            if(pid != pattern->target_pid){
+                continue;
+            }
+        }
+        // Media 匹配模式：未指定 PID 时使用 media 匹配
         else if(pattern->media != Media::all && pattern->media != media_type){
             continue;
         }
         // 符合条件的操作
-        else if(cur_time_ >= pattern->start_sec && cur_time_ <= pattern->end_sec){
+        if(cur_time_ >= pattern->start_sec && cur_time_ <= pattern->end_sec){
             int64_t base_pts = pattern->pts_base; 
             PtsFunc func = pattern->pts_func;
             switch (func)
@@ -1145,10 +1247,33 @@ bool ModTsFile::isAudioStream(uint8_t streamType) {
     }
 }
 
+// 检查是否有 pattern 指定了该 PID（用于 PID 直接匹配模式）
+bool ModTsFile::hasPidPattern(const int pid) {
+    // 检查 pts_pattern_list_ 中是否有指定该 PID 的 pattern
+    for(auto pattern : pts_pattern_list_) {
+        if(pattern->target_pid > 0 && pattern->target_pid == pid) {
+            return true;
+        }
+    }
+    // 检查 loss_repeat_list_ 中是否有指定该 PID 的 pattern
+    for(auto pattern : loss_repeat_list_) {
+        if(pattern->target_pid > 0 && pattern->target_pid == pid) {
+            return true;
+        }
+    }
+    // 检查 ts_err_list_ 中是否有指定该 PID 的 pattern
+    for(auto pattern : ts_err_list_) {
+        if(pattern->target_pid > 0 && pattern->target_pid == pid) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // 返回-1，代表删除，返回0，代表不变，返回1，代表重复
 int ModTsFile::shouldDeleteThisPack(Media media_type, int pid){
     int ans = 0;
-    
+
     // 空的时候返回0
     if(loss_repeat_list_.empty()){
         return 0;
@@ -1164,12 +1289,18 @@ int ModTsFile::shouldDeleteThisPack(Media media_type, int pid){
             loss_repeat_list_.erase(iter);
             iter--;
         }
-        // 不符合条件的跳过
+        // PID 直接匹配模式：如果指定了 target_pid，优先使用 PID 匹配
+        else if(pattern->target_pid > 0){
+            if(pid != pattern->target_pid){
+                continue;
+            }
+        }
+        // Media 匹配模式：未指定 PID 时使用 media 匹配
         else if(pattern->media != Media::all && pattern->media != media_type){
             continue;
         }
         // 符合条件的执行操作
-        else if(cur_time_ >= pattern->start_sec && cur_time_ <=  pattern->end_sec){
+        if(cur_time_ >= pattern->start_sec && cur_time_ <=  pattern->end_sec){
             // random delete 
             if(pattern->pts_func == PtsFunc::loss){
                 Log::debug(__FILE__, __LINE__, "get a loss func");
@@ -1225,7 +1356,7 @@ int ModTsFile::shouldDeleteThisPack(Media media_type, int pid){
 }
 
 // 查看是否需要填充空包
-bool ModTsFile::shouldFillWithNull(Media media_type){
+bool ModTsFile::shouldFillWithNull(Media media_type, int pid){
     if(ts_err_list_.empty()){
         return false;
     }
@@ -1240,12 +1371,18 @@ bool ModTsFile::shouldFillWithNull(Media media_type){
             ts_err_list_.erase(iter);
             iter--;
         }
-        // 不符合条件的跳过
+        // PID 直接匹配模式：如果指定了 target_pid，优先使用 PID 匹配
+        else if(pattern->target_pid > 0){
+            if(pid != pattern->target_pid){
+                continue;
+            }
+        }
+        // Media 匹配模式：未指定 PID 时使用 media 匹配
         else if(pattern->media != Media::all && pattern->media != media_type){
             continue;
         }
         // 符合条件的执行操作
-        else if(cur_time_ >= pattern->start_sec && cur_time_ <=  pattern->end_sec){
+        if(cur_time_ >= pattern->start_sec && cur_time_ <=  pattern->end_sec){
             // 返回可以填充空包的结果
             if(pattern->pts_func == PtsFunc::null){
                 return true;

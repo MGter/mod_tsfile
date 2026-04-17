@@ -39,12 +39,14 @@ public:
         media = Media::all;
         pts_func = PtsFunc::others;
         pts_base = 0;
+        target_pid = -1;  // -1 表示使用 media 匹配，正数表示直接 PID 匹配
     }
     int start_sec;
     int end_sec;
     Media media;
     PtsFunc pts_func;
     float pts_base;
+    int target_pid;  // 直接指定 PID，-1 表示不使用
 public:
     bool parseJson(const rapidjson::Value& pattern);
     void printPattern();
