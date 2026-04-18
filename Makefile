@@ -1,7 +1,7 @@
 # Makefile for mod_tsfile project
 
 CXX = g++
-CXXFLAGS = -std=c++14 -g -Wall -Wextra
+CXXFLAGS = -std=c++11 -g -Wall -Wextra
 LDFLAGS = -lpthread
 INCLUDES = -I./include
 

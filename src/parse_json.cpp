@@ -96,7 +96,7 @@ bool TaskParam::parseJson(const rapidjson::Value& task_param) {
 
     const rapidjson::Value& patternArray = task_param["pattern"];
     for (rapidjson::SizeType i = 0; i < patternArray.Size(); i++) {
-        auto pattern = std::make_unique<FuncPattern>();
+        std::unique_ptr<FuncPattern> pattern(new FuncPattern());
         if (!pattern->parseJson(patternArray[i])) {
             return false;
         }

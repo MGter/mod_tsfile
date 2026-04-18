@@ -8,7 +8,7 @@ std::unique_ptr<TsPAT> TsPAT::parsePAT(u_char* buffer, int buffer_length) {
         return nullptr;
     }
 
-    auto packet = std::make_unique<TsPAT>();
+    std::unique_ptr<TsPAT> packet(new TsPAT());
 
     packet->table_id                    = buffer[0];
     packet->section_syntax_indicator    = buffer[1] >> 7;
@@ -75,7 +75,7 @@ std::unique_ptr<TsPMT> TsPMT::parsePMT(u_char* buffer, int buffer_length)
         return nullptr;
     }
 
-    auto packet = std::make_unique<TsPMT>();
+    std::unique_ptr<TsPMT> packet(new TsPMT());
 
     packet->table_id = buffer[0];
     // PMT的table_id必须为0x02
@@ -164,7 +164,7 @@ std::unique_ptr<TsPacketHeader> TsPacketHeader::parseTsPacketHeader(u_char* buff
         return nullptr;
     }
 
-    auto header = std::make_unique<TsPacketHeader>();
+    std::unique_ptr<TsPacketHeader> header(new TsPacketHeader());
 
     header->sync_byte = buffer[0];
     header->transport_error_indicator = (buffer[1] >> 7) & 0x01;
@@ -202,7 +202,7 @@ std::unique_ptr<OptionalPesHeader> OptionalPesHeader::parseOptionalPesHeader(u_c
     }
 
     // 创建OptionalPesHeader结构体对象
-    auto header = std::make_unique<OptionalPesHeader>();
+    std::unique_ptr<OptionalPesHeader> header(new OptionalPesHeader());
 
     // 从缓冲区中读取字节并映射到结构体的字段中
     u_char byte = buffer[0];

@@ -59,7 +59,7 @@ int main(int argc, char* argv[]){
 
     // 解析task列表
     for(size_t i = 0; i < task_array.Size(); i++){
-        auto task_param = std::make_unique<TaskParam>();
+        auto task_param = std::unique_ptr<TaskParam>(new TaskParam());
         if(!task_param->parseJson(task_array[i])){
             Log::error(__FILE__, __LINE__, "Failed to parse the task_param");
         }
@@ -71,7 +71,7 @@ int main(int argc, char* argv[]){
 
     // 执行task任务
     for(auto& task_param : tasks){
-        auto moder = std::make_unique<ModTsFile>(std::move(task_param));
+        auto moder = std::unique_ptr<ModTsFile>(new ModTsFile(std::move(task_param)));
         if(moder->Start()){
             moders.push_back(std::move(moder));
         }
