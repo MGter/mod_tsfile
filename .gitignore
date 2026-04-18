@@ -28,4 +28,5 @@ input.srt
 *.srt
 test_pid.json
 test_pid_*.ts
+test/
 

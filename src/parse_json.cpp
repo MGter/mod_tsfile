@@ -20,10 +20,16 @@ bool FuncPattern::parseJson(const rapidjson::Value& pattern) {
     end_sec = pattern["end_sec"].GetInt();
 
     if (!pattern.HasMember("media") || !pattern["media"].IsString()) {
-        Log::error( __FILE__, __LINE__, "Missing or invalid 'media' value.");
-        return false;
+        // 如果没有指定 media，但有 pid，则使用默认值 "all"
+        if (pattern.HasMember("pid") && pattern["pid"].IsInt()) {
+            media = Media::all;
+        } else {
+            Log::error( __FILE__, __LINE__, "Missing or invalid 'media' value.");
+            return false;
+        }
+    } else {
+        media = StrToMedia(pattern["media"].GetString());
     }
-    media = StrToMedia(pattern["media"].GetString());
 
     if (!pattern.HasMember("func") || !pattern["func"].IsString()) {
         Log::error( __FILE__, __LINE__, "Missing or invalid 'func' value.");
