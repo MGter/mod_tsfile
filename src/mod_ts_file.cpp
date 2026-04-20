@@ -268,8 +268,8 @@ bool ModTsFile::Start(){
         return false;
     }
 
-    // 开启输入文件
-    file_in_.open(task_param_->input_file.c_str(), std::ios_base::in | std::ios_base::out);
+    // 开启输入文件（只读模式）
+    file_in_.open(task_param_->input_file.c_str(), std::ios_base::in);
     if(!file_in_.is_open()){
         std::cerr << "Failed to open the input file: " << task_param_->input_file << std::endl;
         return false;
@@ -949,28 +949,20 @@ bool ModTsFile::changeDTS(u_char* buffer, int buffer_length, int64_t dts_change)
     return true;
 }
 
-// 覆写pts
+// 覆写pts（MPEG-2 TS PTS 格式）
 void ModTsFile::rewritePts(char* payload, u_int64_t pts){
-    // 清空buffer
-    char basic_marker = payload[0];
-    basic_marker &= 0b11110001;
+    // PTS 编码格式：5字节，33位PTS值，带有标记位
+    // byte[0]: '0010' + PTS[32..30] + marker (bit 4)
+    // byte[1]: PTS[29..22]
+    // byte[2]: PTS[21..15] + marker (bit 0)
+    // byte[3]: PTS[14..7]
+    // byte[4]: PTS[6..0] + marker (bit 0)
 
-    for(int i = 0; i < 5; i++)
-        payload[i] = 0;
-    // 传入对应的内容
-    payload[0] = (char)((pts >> 29) & 0x0E);
-    payload[1] = (char)((pts >> 22) & 0xFF);
-    payload[2] = (char)((pts >> 14) & 0xFE);
-    payload[3] = (char)((pts >> 7) & 0xFF);
-    payload[4] = (char)((pts << 1) & 0xFE);
-
-    // 添加标记位
-    payload[0] |= basic_marker;
-    payload[2] |= 0b00000001;
-    payload[4] |= 0b00000001;
-
-    // 返回
-    return ;
+    payload[0] = (char)(0x21 | ((pts >> 29) & 0x0E));  // '0010'=0x20, marker=0x01, PTS bits[32-30]
+    payload[1] = (char)((pts >> 22) & 0xFF);           // PTS bits[29-22]
+    payload[2] = (char)(0x01 | ((pts >> 14) & 0xFE));  // marker + PTS bits[21-15]
+    payload[3] = (char)((pts >> 7) & 0xFF);            // PTS bits[14-7]
+    payload[4] = (char)(0x01 | ((pts << 1) & 0xFE));   // marker + PTS bits[6-0]
 }
 
 
